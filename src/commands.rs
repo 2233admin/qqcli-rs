@@ -1,5 +1,6 @@
 //! QQCLI 命令实现
 
+use crate::cache;
 use crate::db::{self, Message};
 use crate::decrypt;
 use crate::output::YamlWriter;
@@ -442,5 +443,34 @@ pub async fn groups(url: &str, token: Option<&str>) -> Result<()> {
     for g in &group_list {
         println!("- {} ({})", g.group_name, g.group_id);
     }
+    Ok(())
+}
+
+/// 从 NapCat 同步联系人到本地缓存
+pub async fn sync(url: &str, token: Option<&str>) -> Result<()> {
+    use crate::napcat::NapcatClient;
+
+    println!("正在连接 NapCat: {}", url);
+    let client = NapcatClient::connect(url, token).await?;
+
+    println!("正在获取好友列表...");
+    let friends = client.get_friend_list().await?;
+    println!("获取到 {} 个好友", friends.len());
+
+    println!("正在获取群列表...");
+    let groups = client.get_group_list().await?;
+    println!("获取到 {} 个群", groups.len());
+
+    cache::save_cache(&friends, &groups)?;
+
+    let cache = cache::load_cache();
+    if let Some(c) = cache {
+        use chrono::DateTime;
+        let dt = DateTime::from_timestamp(c.synced_at, 0)
+            .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| c.synced_at.to_string());
+        println!("同步完成: {} 个好友, {} 个群, 时间 {}", friends.len(), groups.len(), dt);
+    }
+
     Ok(())
 }

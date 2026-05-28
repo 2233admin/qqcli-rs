@@ -23,7 +23,7 @@ pub struct QqcliConfig {
 }
 
 /// 获取配置目录 (~/.config/qqcli/)
-fn config_dir() -> Result<PathBuf> {
+pub fn config_dir() -> Result<PathBuf> {
     let dir = dirs::config_dir()
         .ok_or_else(|| anyhow::anyhow!("无法获取配置目录"))?;
     let dir = dir.join(CONFIG_DIR);

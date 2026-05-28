@@ -3,6 +3,7 @@
 //! 数据源: 解密后的 nt_msg.db (SQLCipher)
 //! 路径: Documents/Tencent Files/{uin}/nt_qq/nt_db/nt_msg.db
 
+mod cache;
 mod commands;
 mod config;
 mod db;
@@ -201,6 +202,16 @@ enum Commands {
         args: Vec<String>,
     },
 
+    /// 同步联系人缓存 (从 NapCat 拉取好友/群列表，存入 contacts.json)
+    Sync {
+        /// NapCat WebSocket URL
+        #[arg(long, default_value = "ws://127.0.0.1:4301")]
+        url: String,
+        /// access_token
+        #[arg(long)]
+        token: Option<String>,
+    },
+
     /// 生成 shell 补全脚本
     Completion {
         /// Shell 类型
@@ -303,6 +314,12 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()?;
             rt.block_on(napcat::run(sub, url, token_ref, &args_ref))
+        }
+        Commands::Sync { url, token } => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(commands::sync(url, token.as_deref()))
         }
         Commands::Completion { .. } => unreachable!(),
     };

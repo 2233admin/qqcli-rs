@@ -17,6 +17,7 @@
 //!   [40050] msg_time (Unix timestamp in the decrypted local DB)
 //!   [40800] content payload (fallback from [40090]/[40093])
 
+use crate::cache;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone};
 use rusqlite::{Connection, params};
@@ -355,12 +356,11 @@ pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
 
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0)?;
-        let peer_id = peer_id.to_string();
+        let peer_id_str = peer_id.to_string();
+        let name = cache::resolve_nickname(peer_id).unwrap_or_else(|| format!("uid_{}", peer_id));
         Ok(Session {
-            id: peer_id.clone(),
-            name: row
-                .get::<_, Option<String>>(1)?
-                .unwrap_or_else(|| peer_id.clone()),
+            id: peer_id_str,
+            name,
             chat_type: "private".to_string(),
             is_group: false,
             last_sender: String::new(),
@@ -454,12 +454,12 @@ pub fn get_messages(
             let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
             let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
+            let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+
             messages.push(Message {
                 id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
                 sender_id,
-                sender_name: row
-                    .get::<_, Option<String>>(2)?
-                    .unwrap_or_else(|| sender_id.to_string()),
+                sender_name,
                 content: extract_text(&content_raw),
                 msg_type: detect_type(&content_raw),
                 is_mine: is_mine == 1,
@@ -514,12 +514,12 @@ pub fn get_messages(
             let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
             let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
+            let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+
             messages.push(Message {
                 id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
                 sender_id,
-                sender_name: row
-                    .get::<_, Option<String>>(2)?
-                    .unwrap_or_else(|| sender_id.to_string()),
+                sender_name,
                 content: extract_text(&content_raw),
                 msg_type: detect_type(&content_raw),
                 is_mine: is_mine == 1,
@@ -583,12 +583,11 @@ pub fn search_messages(
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
+                let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
                 messages.push(Message {
                     id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
                     sender_id,
-                    sender_name: row
-                        .get::<_, Option<String>>(2)?
-                        .unwrap_or_else(|| sender_id.to_string()),
+                    sender_name,
                     content,
                     msg_type: detect_type(&content_raw),
                     is_mine: is_mine == 1,
@@ -634,12 +633,11 @@ pub fn search_messages(
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
+                let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
                 messages.push(Message {
                     id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
                     sender_id,
-                    sender_name: row
-                        .get::<_, Option<String>>(2)?
-                        .unwrap_or_else(|| sender_id.to_string()),
+                    sender_name,
                     content,
                     msg_type: detect_type(&content_raw),
                     is_mine: is_mine == 1,
@@ -761,12 +759,11 @@ pub fn get_unread_sessions(limit: usize) -> Result<Vec<Session>> {
     let mut stmt = conn.prepare(sql)?;
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0).unwrap_or(0);
-        let peer_id = peer_id.to_string();
+        let peer_id_str = peer_id.to_string();
+        let name = cache::resolve_nickname(peer_id).unwrap_or_else(|| format!("uid_{}", peer_id));
         Ok(Session {
-            id: peer_id.clone(),
-            name: row
-                .get::<_, Option<String>>(1)?
-                .unwrap_or_else(|| peer_id.clone()),
+            id: peer_id_str,
+            name,
             chat_type: "private".to_string(),
             is_group: false,
             last_sender: String::new(),
