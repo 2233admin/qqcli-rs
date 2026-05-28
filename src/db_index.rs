@@ -168,3 +168,65 @@ pub fn import_all(sqlite_path: &PathBuf, _cache: &ContactCache) -> Result<usize>
     println!("导入完成: {} 条消息 (去重后)", count);
     Ok(count)
 }
+
+/// DuckDB 全文搜索
+pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<SearchResult>> {
+    let path = get_path()?;
+    if !path.exists() {
+        anyhow::bail!("请先运行 qq index");
+    }
+
+    let conn = Connection::open(&path)?;
+
+    let sql = if chat_id.is_some() {
+        "SELECT msg_id, chat_id, chat_type, sender_id, sender_name, content, timestamp, time_str
+         FROM messages
+         WHERE content LIKE ? AND chat_id = ?
+         ORDER BY timestamp DESC
+         LIMIT ?"
+    } else {
+        "SELECT msg_id, chat_id, chat_type, sender_id, sender_name, content, timestamp, time_str
+         FROM messages
+         WHERE content LIKE ?
+         ORDER BY timestamp DESC
+         LIMIT ?"
+    };
+
+    let pattern = format!("%{}%", query);
+    let mut results = Vec::new();
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = if let Some(cid) = chat_id {
+        stmt.query(params![pattern, cid, limit as i64])?
+    } else {
+        stmt.query(params![pattern, limit as i64])?
+    };
+
+    let mut rows = rows;
+    while let Some(row) = rows.next()? {
+        results.push(SearchResult {
+            msg_id: row.get(0)?,
+            chat_id: row.get(1)?,
+            chat_type: row.get(2)?,
+            sender_id: row.get(3)?,
+            sender_name: row.get(4)?,
+            content: row.get(5)?,
+            timestamp: row.get(6)?,
+            time_str: row.get(7)?,
+        });
+    }
+
+    Ok(results)
+}
+
+#[derive(Debug)]
+pub struct SearchResult {
+    pub msg_id: i64,
+    pub chat_id: String,
+    pub chat_type: String,
+    pub sender_id: i64,
+    pub sender_name: String,
+    pub content: String,
+    pub timestamp: i64,
+    pub time_str: String,
+}

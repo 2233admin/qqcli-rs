@@ -122,6 +122,20 @@ pub fn search(
     until: Option<&str>,
     json_flag: bool,
 ) -> Result<()> {
+    // 优先用 DuckDB 搜索
+    if let Ok(results) = db_index::search(keyword, chat, limit) {
+        for r in results {
+            let content = if r.content.len() > 100 {
+                format!("{}...", &r.content[..100])
+            } else {
+                r.content
+            };
+            println!("[{}] {} ({}): {}", r.time_str, r.sender_name, r.chat_id, content);
+        }
+        return Ok(());
+    }
+
+    // fallback 到 nt_msg.db
     let since_ts = since.and_then(|s| db::parse_ts(s).ok());
     let until_ts = until.and_then(|s| db::parse_ts(s).ok());
 
