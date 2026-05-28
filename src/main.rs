@@ -187,12 +187,12 @@ enum Commands {
         token: Option<String>,
     },
 
-    /// NapCat OneBot11 操作 (需 NapCat 运行于 ws://127.0.0.1:4301)
+    /// NapCat OneBot11 操作 (需 NapCat 运行于 ws://127.0.0.1:18301)
     Nap {
         /// 子命令: whoami | friends | groups | history | send
         sub: String,
         /// NapCat WebSocket URL
-        #[arg(long, default_value = "ws://127.0.0.1:4301")]
+        #[arg(long, default_value = "ws://127.0.0.1:18301")]
         url: String,
         /// access_token
         #[arg(long)]
@@ -205,7 +205,7 @@ enum Commands {
     /// 同步联系人缓存 (从 NapCat 拉取好友/群列表，存入 contacts.json)
     Sync {
         /// NapCat WebSocket URL
-        #[arg(long, default_value = "ws://127.0.0.1:4301")]
+        #[arg(long, default_value = "ws://127.0.0.1:18301")]
         url: String,
         /// access_token
         #[arg(long)]

@@ -1,6 +1,6 @@
 //! NapCat OneBot11 WebSocket client
 //!
-//! Connects to NapCat via WebSocket (ws://127.0.0.1:4301) and exposes
+//! Connects to NapCat via WebSocket (ws://127.0.0.1:18301) and exposes
 //! the core OneBot11 API: friend list, group list, message history, and send.
 
 pub mod models;
@@ -41,7 +41,7 @@ pub struct NapcatClient {
 
 impl NapcatClient {
     /// Connect to a NapCat WebSocket endpoint.
-    /// Example: ws://127.0.0.1:4301
+    /// Example: ws://127.0.0.1:18301
     pub async fn connect(url: &str, access_token: Option<&str>) -> Result<Self> {
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
 
@@ -263,7 +263,7 @@ impl NapcatClient {
 
 // ─── CLI command wrappers ────────────────────────────────────
 
-const DEFAULT_NAPCAT_URL: &str = "ws://127.0.0.1:4301";
+const DEFAULT_NAPCAT_URL: &str = "ws://127.0.0.1:18301";
 
 /// Run a napcat subcommand: whoami | friends | groups | history | send
 pub async fn run(sub: &str, url: &str, token: Option<&str>, args: &[&str]) -> Result<()> {
