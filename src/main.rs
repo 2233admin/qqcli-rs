@@ -126,6 +126,24 @@ enum Commands {
         output: Option<String>,
     },
 
+    /// 打包聊天记录中的媒体文件到 ZIP
+    Bundle {
+        /// 会话 ID
+        chat: String,
+        /// 起始时间 YYYY-MM-DD
+        #[arg(long)]
+        since: Option<String>,
+        /// 结束时间 YYYY-MM-DD
+        #[arg(long)]
+        until: Option<String>,
+        /// 最大消息数
+        #[arg(short, long, default_value_t = 500)]
+        limit: usize,
+        /// 输出 ZIP 文件路径
+        #[arg(short, long, default_value = "media.zip")]
+        output: String,
+    },
+
     /// 有未读消息的会话
     Unread {
         /// 显示数量
@@ -255,6 +273,13 @@ fn main() -> Result<()> {
             format,
             output.as_deref(),
             cli.json,
+        ),
+        Commands::Bundle { chat, since, until, limit, output } => commands::bundle_media(
+            chat,
+            since.as_deref(),
+            until.as_deref(),
+            *limit,
+            output,
         ),
         Commands::Unread { limit } => commands::unread(*limit, cli.json),
         Commands::Members { chat } => commands::members(chat, cli.json),

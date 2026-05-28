@@ -209,6 +209,101 @@ pub fn export(
     Ok(())
 }
 
+/// 打包聊天记录中的媒体文件
+pub fn bundle_media(chat: &str, since: Option<&str>, until: Option<&str>, limit: usize, output: &str) -> Result<()> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+    use md5;
+
+    let since_ts = since.and_then(|s| db::parse_ts(s).ok());
+    let until_ts = until.and_then(|s| db::parse_ts(s).ok());
+
+    let messages = db::get_messages(chat, limit, 0, since_ts, until_ts, None)?;
+
+    // 提取所有图片 URL
+    let mut image_urls: Vec<(String, String)> = Vec::new(); // (url, filename)
+    for m in &messages {
+        for url in extract_image_urls(&m.content) {
+            let filename = url.split('/').last().unwrap_or("image.jpg").to_string();
+            image_urls.push((url, filename));
+        }
+    }
+
+    if image_urls.is_empty() {
+        println!("未找到图片链接");
+        return Ok(());
+    }
+
+    println!("找到 {} 张图片，开始下载...", image_urls.len());
+
+    // 创建 zip 文件
+    let file = std::fs::File::create(output)?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    let mut downloaded = 0;
+    let mut failed = 0;
+
+    let total = image_urls.len();
+    for (i, (url, filename)) in image_urls.iter().enumerate() {
+        match client.get(url).send() {
+            Ok(response) => {
+                if let Ok(bytes) = response.bytes() {
+                    let md5_hash = format!("{:x}", md5::compute(&bytes));
+                    let ext = filename.rsplit('.').next().unwrap_or("jpg");
+                    let unique_name = format!("{}_{}.{}", &md5_hash[..8], i, ext);
+
+                    zip.start_file(&unique_name, options)?;
+                    zip.write_all(&bytes)?;
+                    downloaded += 1;
+
+                    if downloaded % 10 == 0 {
+                        println!("已下载 {}/{}", downloaded, total);
+                    }
+                } else {
+                    failed += 1;
+                }
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    zip.finish()?;
+    println!("完成！下载 {} 张图片，失败 {} 张", downloaded, failed);
+    println!("已保存到: {}", output);
+    Ok(())
+}
+
+/// 从消息内容中提取图片 URL
+fn extract_image_urls(content: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+    for line in content.lines() {
+        // 匹配 QQ 图片 CDN URL
+        if line.contains("multimedia.nt.qq.com.cn") && line.contains("fileid=") {
+            if let Some(start) = line.find("fileid=") {
+                if let Some(rest) = line.get(start..) {
+                    let params = &rest[7..rest.len().min(200)];
+                    if let Some(end) = params.find(|c: char| !c.is_alphanumeric() && c != '=' && c != '_' && c != '-' && c != '~') {
+                        let fileid = &params[..end.min(100)];
+                        let full_url = format!("https://multimedia.nt.qq.com.cn{}", params);
+                        if !urls.iter().any(|u: &String| u.contains(fileid)) {
+                            urls.push(full_url);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    urls
+}
+
 pub fn unread(limit: usize, json_flag: bool) -> Result<()> {
     match db::get_unread_sessions(limit) {
         Ok(sessions) if !sessions.is_empty() => {

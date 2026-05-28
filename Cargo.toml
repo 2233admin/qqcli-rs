@@ -27,6 +27,9 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
 regex-lite = "0.1"
 toml = "0.8"
+zip = "2.1"
+md5 = "0.8"
+reqwest = { version = "0.12", features = ["blocking"] }
 
 [profile.release]
 opt-level = 3
