@@ -156,6 +156,7 @@ pub struct Session {
     pub unread: i64,
 }
 
+/// 内部消息格式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: i64,
@@ -166,6 +167,132 @@ pub struct Message {
     pub is_mine: bool,
     pub timestamp: i64,
     pub time_str: String,
+}
+
+impl Message {
+    /// 转换为与 qq-data-exporter 兼容的 NormalizedMessage
+    pub fn to_normalized(&self, chat_id: &str) -> NormalizedMessage {
+        let ts = self.timestamp;
+        let is_group = chat_id.parse::<i64>().is_err() || chat_id.starts_with("group:");
+
+        NormalizedMessage {
+            chat_type: if is_group { "group".to_string() } else { "private".to_string() },
+            chat_id: chat_id.to_string(),
+            group_id: if is_group { Some(chat_id.to_string()) } else { None },
+            peer_id: if !is_group { Some(chat_id.to_string()) } else { None },
+            chat_name: None,
+            sender_id: self.sender_id.to_string(),
+            sender_name: self.sender_name.clone(),
+            sender_card: None,
+            message_id: Some(self.id.to_string()),
+            message_seq: None,
+            timestamp_ms: ts * 1000,
+            timestamp_iso: self.time_str.clone(),
+            content: self.content.clone(),
+            text_content: self.content.clone(),
+            image_file_names: extract_image_names(&self.content),
+            uploaded_file_names: vec![],
+            emoji_tokens: extract_emoji_tokens(&self.content),
+            segments: vec![NormalizedSegment {
+                seg_type: self.msg_type.clone(),
+                token: None,
+                text: Some(self.content.clone()),
+                file_name: None,
+                path: None,
+                md5: None,
+            }],
+            reply_to: None,
+        }
+    }
+}
+
+/// 从内容中提取图片文件名
+fn extract_image_names(content: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in content.lines() {
+        if let Some(start) = line.find("[图片]") {
+            if let Some(name) = line.get(start + 4..).and_then(|s| s.split_whitespace().next()) {
+                if name.ends_with(".jpg") || name.ends_with(".png") || name.ends_with(".gif") {
+                    names.push(name.to_string());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// 从内容中提取表情 token
+fn extract_emoji_tokens(content: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    for line in content.lines() {
+        if line.contains("[表情") && line.contains("]") {
+            if let Some(start) = line.find("[表情") {
+                if let Some(end) = line[start..].find(']') {
+                    let token = &line[start + 1..start + end];
+                    tokens.push(token.to_string());
+                }
+            }
+        }
+    }
+    tokens
+}
+
+/// 与 qq-data-exporter 兼容的消息格式
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizedMessage {
+    pub chat_type: String,        // "group" | "private"
+    pub chat_id: String,
+    #[serde(rename = "group_id", skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(rename = "peer_id", skip_serializing_if = "Option::is_none")]
+    pub peer_id: Option<String>,
+    pub chat_name: Option<String>,
+    pub sender_id: String,
+    pub sender_name: String,
+    #[serde(rename = "sender_card", skip_serializing_if = "Option::is_none")]
+    pub sender_card: Option<String>,
+    #[serde(rename = "message_id", skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(rename = "message_seq", skip_serializing_if = "Option::is_none")]
+    pub message_seq: Option<String>,
+    #[serde(rename = "timestamp_ms")]
+    pub timestamp_ms: i64,
+    pub timestamp_iso: String,
+    pub content: String,
+    #[serde(rename = "text_content")]
+    pub text_content: String,
+    #[serde(rename = "image_file_names", default)]
+    pub image_file_names: Vec<String>,
+    #[serde(rename = "uploaded_file_names", default)]
+    pub uploaded_file_names: Vec<String>,
+    #[serde(rename = "emoji_tokens", default)]
+    pub emoji_tokens: Vec<String>,
+    #[serde(default)]
+    pub segments: Vec<NormalizedSegment>,
+    #[serde(rename = "reply_to", skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ReplyRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizedSegment {
+    #[serde(rename = "type")]
+    pub seg_type: String,
+    pub token: Option<String>,
+    pub text: Option<String>,
+    pub file_name: Option<String>,
+    pub path: Option<String>,
+    pub md5: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplyRef {
+    #[serde(rename = "referenced_message_id")]
+    pub referenced_message_id: Option<String>,
+    #[serde(rename = "referenced_sender_id")]
+    pub referenced_sender_id: Option<String>,
+    #[serde(rename = "referenced_timestamp")]
+    pub referenced_timestamp: Option<String>,
+    pub preview_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

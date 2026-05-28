@@ -143,6 +143,7 @@ pub fn contacts(query: Option<&str>, limit: usize, kind: &str, json_flag: bool) 
     Ok(())
 }
 
+/// 导出聊天记录，支持多种格式
 pub fn export(
     chat: &str,
     since: Option<&str>,
@@ -158,6 +159,16 @@ pub fn export(
     let messages = db::get_messages(chat, limit, 0, since_ts, until_ts, None)?;
 
     let content = match format {
+        // JSONL 格式（与 qq-data-exporter 兼容）
+        "jsonl" => {
+            let mut s = String::new();
+            for m in &messages {
+                let nm = db::Message::to_normalized(m, chat);
+                s.push_str(&serde_json::to_string(&nm)?);
+                s.push('\n');
+            }
+            s
+        }
         "json" => serde_json::to_string_pretty(&messages)?,
         "yaml" => serde_yaml::to_string(&messages)?,
         "txt" => {
