@@ -222,6 +222,17 @@ enum Commands {
 
     /// 将消息导出到 DuckDB FTS 索引
     Index {},
+
+    /// NapCat IPC 插件模式 (直接调用 wrapper API，低开销)
+    Plugin {
+        /// 子命令: ping | send | friends | groups | members | chats
+        sub: String,
+        /// IPC 端口 (默认 9334)
+        #[arg(long, default_value_t = 9334)]
+        port: u16,
+        /// 额外参数
+        args: Vec<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -327,6 +338,10 @@ fn main() -> Result<()> {
         }
         Commands::Completion { .. } => unreachable!(),
         Commands::Index {} => commands::index(),
+        Commands::Plugin { sub, port, args } => {
+            let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            commands::plugin(sub, *port, &args_ref)
+        }
     };
 
     result

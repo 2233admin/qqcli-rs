@@ -3,6 +3,7 @@
 //! Connects to NapCat via WebSocket (ws://127.0.0.1:18301) and exposes
 //! the core OneBot11 API: friend list, group list, message history, and send.
 
+pub mod ipc_client;
 pub mod models;
 
 use crate::napcat::models::{

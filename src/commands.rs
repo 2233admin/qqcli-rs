@@ -4,8 +4,9 @@ use crate::cache;
 use crate::db::{self, Message};
 use crate::db_index;
 use crate::decrypt;
+use crate::napcat::ipc_client::NapcatIpcClient;
 use crate::output::YamlWriter;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 /// 检测/初始化 DB: 查找 DB，检测加密状态，必要时自动解密
 pub fn init(force: bool) -> Result<()> {
@@ -500,5 +501,98 @@ pub fn index() -> Result<()> {
     });
     let count = db_index::import_all(&db_path, &cache)?;
     println!("索引完成: {} 条消息 -> {}", count, db_index::get_path()?.display());
+    Ok(())
+}
+
+/// NapCat IPC 插件命令
+pub fn plugin(sub: &str, port: u16, args: &[&str]) -> Result<()> {
+    let client = NapcatIpcClient::with_port(port).map_err(|e| anyhow!("IPC 连接失败: {}", e))?;
+
+    match sub {
+        "ping" => {
+            if client.ping().map_err(|e| anyhow!("{}", e))? {
+                println!("[OK] NapCat IPC 连接正常");
+            } else {
+                anyhow::bail!("IPC ping 失败");
+            }
+        }
+        "send" => {
+            let msg_type = args.first().ok_or_else(|| anyhow!("用法: plugin send <private|group> <target> <message...>"))?;
+            let target = args.get(1).ok_or_else(|| anyhow!("用法: plugin send <private|group> <target> <message...>"))?;
+            let message = args.get(2..).map(|a| a.join(" ")).ok_or_else(|| anyhow!("用法: plugin send <private|group> <target> <message...>"))?;
+
+            if message.is_empty() {
+                anyhow::bail!("消息内容不能为空");
+            }
+
+            let result = match *msg_type {
+                "private" => client.send_private_msg(target, &message),
+                "group" => client.send_group_msg(target, &message),
+                _ => anyhow::bail!("msg_type 必须是 private 或 group"),
+            }.map_err(|e| anyhow!("发送失败: {}", e))?;
+
+            if let Some(success) = result.get("success").and_then(|v| v.as_bool()) {
+                if success {
+                    println!("发送成功: {:?}", result.get("msgId"));
+                } else {
+                    anyhow::bail!("发送失败: {:?}", result.get("error"));
+                }
+            }
+        }
+        "friends" => {
+            let friends = client.get_friend_list().map_err(|e| anyhow!("{}", e))?;
+            println!("=== 好友列表 ({}个) ===", friends.len());
+            for f in &friends {
+                let nick = f.get("nick").and_then(|v| v.as_str()).unwrap_or("?");
+                let uin = f.get("uin").or(f.get("uid")).and_then(|v| v.as_str()).unwrap_or("?");
+                println!("- {} ({})", nick, uin);
+            }
+        }
+        "groups" => {
+            let groups = client.get_group_list().map_err(|e| anyhow!("{}", e))?;
+            println!("=== 群列表 ({}个) ===", groups.len());
+            for g in &groups {
+                let name = g.get("groupName").or(g.get("name")).and_then(|v| v.as_str()).unwrap_or("?");
+                let code = g.get("groupCode").or(g.get("code")).or(g.get("id")).and_then(|v| v.as_str()).unwrap_or("?");
+                println!("- {} ({})", name, code);
+            }
+        }
+        "members" => {
+            let group_id = args.first().ok_or_else(|| anyhow!("用法: plugin members <group_id>"))?;
+            let members = client.get_group_members(group_id).map_err(|e| anyhow!("{}", e))?;
+            println!("=== 群成员 ({}个) ===", members.len());
+            for m in &members {
+                let nick = m.get("nick").or(m.get("nickname")).and_then(|v| v.as_str()).unwrap_or("?");
+                let uin = m.get("uin").or(m.get("uid")).and_then(|v| v.as_str()).unwrap_or("?");
+                let card = m.get("cardName").or(m.get("card")).and_then(|v| v.as_str());
+                if let Some(c) = card {
+                    println!("- {} ({}) [{}]", c, uin, nick);
+                } else {
+                    println!("- {} ({})", nick, uin);
+                }
+            }
+        }
+        "chats" => {
+            let chats = client.get_recent_chats().map_err(|e| anyhow!("{}", e))?;
+            println!("=== 最近会话 ({}个) ===", chats.len());
+            for c in &chats {
+                let name = c.get("nickName").or(c.get("name")).and_then(|v| v.as_str()).unwrap_or("?");
+                let id = c.get("peerUid").or(c.get("uid")).and_then(|v| v.as_str()).unwrap_or("?");
+                let chat_type = c.get("chatType").and_then(|v| v.as_i64()).unwrap_or(0);
+                let type_str = match chat_type {
+                    1 => "私聊",
+                    2 => "群聊",
+                    _ => "其他",
+                };
+                println!("- [{}] {} ({})", type_str, name, id);
+            }
+        }
+        _ => {
+            eprintln!("未知子命令: {}", sub);
+            eprintln!("可用: ping | send | friends | groups | members | chats");
+            anyhow::bail!("unknown subcommand");
+        }
+    }
+
     Ok(())
 }
