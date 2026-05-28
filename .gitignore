@@ -1,0 +1,23 @@
+# Build artifacts
+/target/
+*.exe
+*.dll
+*.pdb
+
+# IDE
+.vs/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+ Cargo.lock
+
+# Probe binaries
+src/bin/probe_*.rs
+investigate_blob/
+debug_blob_findings/
