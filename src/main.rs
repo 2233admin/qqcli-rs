@@ -7,6 +7,7 @@ mod cache;
 mod commands;
 mod config;
 mod db;
+mod db_index;
 mod decrypt;
 mod napcat;
 mod output;
@@ -218,6 +219,9 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+
+    /// 将消息导出到 DuckDB FTS 索引
+    Index {},
 }
 
 fn main() -> Result<()> {
@@ -322,6 +326,7 @@ fn main() -> Result<()> {
             rt.block_on(commands::sync(url, token.as_deref()))
         }
         Commands::Completion { .. } => unreachable!(),
+        Commands::Index {} => commands::index(),
     };
 
     result

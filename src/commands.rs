@@ -2,6 +2,7 @@
 
 use crate::cache;
 use crate::db::{self, Message};
+use crate::db_index;
 use crate::decrypt;
 use crate::output::YamlWriter;
 use anyhow::Result;
@@ -472,5 +473,18 @@ pub async fn sync(url: &str, token: Option<&str>) -> Result<()> {
         println!("同步完成: {} 个好友, {} 个群, 时间 {}", friends.len(), groups.len(), dt);
     }
 
+    Ok(())
+}
+
+/// 将 QQ 消息批量索引到 DuckDB FTS
+pub fn index() -> Result<()> {
+    let db_path = db::detect_db_path()?;
+    let cache = cache::load_cache().unwrap_or_else(|| cache::ContactCache {
+        synced_at: 0,
+        friends: vec![],
+        groups: vec![],
+    });
+    let count = db_index::import_all(&db_path, &cache)?;
+    println!("索引完成: {} 条消息 -> {}", count, db_index::get_path()?.display());
     Ok(())
 }

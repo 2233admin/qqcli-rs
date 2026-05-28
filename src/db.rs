@@ -112,6 +112,11 @@ fn open_conn(path: &PathBuf) -> Result<Connection> {
     Connection::open(path).with_context(|| format!("无法打开 DB: {}", path.display()))
 }
 
+/// Open a rusqlite connection (public, used by db_index)
+pub fn open_db(path: &PathBuf) -> Result<Connection> {
+    open_conn(path)
+}
+
 // UID 映射缓存: 加密 UID -> 真实 QQ号
 static UID_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::OnceLock::new();
 static DB_PATH_CACHE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -1051,7 +1056,7 @@ fn extract_text_from_blob_scanned(data: &[u8]) -> String {
 
 /// Try to read a column as BLOB; if it fails (TEXT stored in BLOB column),
 /// fall back to reading as TEXT and converting to UTF-8 bytes.
-fn get_either_blob_or_text(row: &rusqlite::Row<'_>, idx: usize) -> Vec<u8> {
+pub(crate) fn get_either_blob_or_text(row: &rusqlite::Row<'_>, idx: usize) -> Vec<u8> {
     match row.get::<_, Option<Vec<u8>>>(idx) {
         Ok(Some(v)) => return v,
         _ => {}
