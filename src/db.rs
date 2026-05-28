@@ -670,6 +670,9 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
     // 确保 UID 映射已加载
     let _ = load_uid_mapping(&path);
 
+    // 加载联系人缓存用于昵称解析
+    let cache = crate::cache::load_cache();
+
     if kind == "all" || kind == "friend" {
         // [40033] = peer_id (数字 QQ), [40020] = encrypted UID
         let sql = "SELECT DISTINCT [40033], [40020] FROM c2c_msg_table";
@@ -688,8 +691,12 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
                 continue;
             }
 
-            // name 显示加密 UID（昵称暂时无法获取）
-            let name = encrypted_uid;
+            // 尝试用缓存解析昵称
+            let name = if let Some(ref c) = cache {
+                cache::resolve_or_fallback(peer_id, encrypted_uid.clone())
+            } else {
+                encrypted_uid
+            };
 
             // 过滤查询
             if let Some(q) = query {
