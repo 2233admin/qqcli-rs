@@ -1,11 +1,13 @@
 [package]
 name = "qqcli"
 version = "0.1.0"
-edition = "2024"
-rust-version = "1.85"
+edition = "2021"
+rust-version = "1.81"
 authors = ["Curry"]
 description = "QQ 本地数据 CLI — 读取聊天记录、搜索、统计、导出"
 license = "MIT"
+repository = "https://github.com/2233admin/qqcli-rs"
+homepage = "https://github.com/2233admin/qqcli-rs"
 
 [[bin]]
 name = "qq"
