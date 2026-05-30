@@ -42,13 +42,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy lints
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -p qqcli --bin qq -- -D warnings
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build -p qqcli --bin qq --verbose
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test -p qqcli --verbose
 
   release:
     runs-on: ubuntu-latest
