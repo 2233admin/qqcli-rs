@@ -60,7 +60,7 @@ pub fn import_all(sqlite_path: &PathBuf, _cache: &ContactCache) -> Result<usize>
     // ── 私聊 ──
     println!("导入私聊消息...");
     {
-        let sql_c2c = "SELECT [40001], [40033], [40050], [40800] FROM c2c_msg_table WHERE [40800] IS NOT NULL";
+        let sql_c2c = "SELECT schema::MSG_ID, schema::C2C_PEER_ID, schema::TIMESTAMP, schema::CONTENT FROM c2c_msg_table WHERE schema::CONTENT IS NOT NULL";
         let mut stmt = src_conn.prepare(sql_c2c)?;
         let mut rows = stmt.raw_query();
 
@@ -105,7 +105,7 @@ pub fn import_all(sqlite_path: &PathBuf, _cache: &ContactCache) -> Result<usize>
     // ── 群聊 ──
     println!("导入群聊消息...");
     {
-        let sql_group = "SELECT [40001], [40020], [40050], [40800] FROM dataline_msg_table WHERE [40800] IS NOT NULL";
+        let sql_group = "SELECT schema::MSG_ID, schema::GROUP_NAME, schema::TIMESTAMP, schema::CONTENT FROM dataline_msg_table WHERE schema::CONTENT IS NOT NULL";
         let mut stmt = src_conn.prepare(sql_group)?;
         let mut rows = stmt.raw_query();
 

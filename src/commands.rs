@@ -6,6 +6,7 @@ use crate::db_index;
 use crate::decrypt;
 use crate::napcat::ipc_client::NapcatIpcClient;
 use crate::output::YamlWriter;
+use crate::schema;
 use anyhow::{anyhow, Result};
 
 /// 检测/初始化 DB: 查找 DB，检测加密状态，必要时自动解密
@@ -359,12 +360,21 @@ pub fn new_messages(limit: usize, json_flag: bool) -> Result<()> {
     let mut messages: Vec<Message> = Vec::new();
 
     let sql = format!(
-        "SELECT [40001],[40030],[40021],[40800],[40050],[40009],[40033]
+        "SELECT {}, {}, {}, {}, {}, {}, {}
          FROM c2c_msg_table
-         WHERE [40050] >= {} AND [40800] IS NOT NULL
-         ORDER BY [40050] DESC
+         WHERE {} >= {{}} AND {} IS NOT NULL
+         ORDER BY {} DESC
          LIMIT ?",
-        since_ts
+        schema::MSG_ID,
+        schema::C2C_SENDER_ID,
+        schema::C2C_SENDER_NAME,
+        schema::CONTENT,
+        schema::TIMESTAMP,
+        schema::IS_SENDER_ME,
+        schema::C2C_PEER_ID,
+        schema::TIMESTAMP,
+        schema::CONTENT,
+        schema::TIMESTAMP
     );
 
     let mut stmt = conn.prepare(&sql)?;

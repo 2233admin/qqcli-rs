@@ -11,6 +11,7 @@ mod db_index;
 mod decrypt;
 mod napcat;
 mod output;
+mod schema;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
