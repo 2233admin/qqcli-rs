@@ -4,7 +4,7 @@ use crate::cache::{self, ContactCache};
 use crate::db;
 use anyhow::{Context, Result};
 use duckdb::{params, Connection};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const DB_NAME: &str = "messages.duckdb";
 
@@ -45,7 +45,7 @@ pub fn init_db(path: &PathBuf) -> Result<()> {
 
 /// 批量导入所有私聊和群聊消息到 DuckDB
 /// 返回导入的消息总数
-pub fn import_all(sqlite_path: &PathBuf, _cache: &ContactCache) -> Result<usize> {
+pub fn import_all(sqlite_path: &Path, _cache: &ContactCache) -> Result<usize> {
     let duckdb_path = get_path()?;
     init_db(&duckdb_path)?;
 

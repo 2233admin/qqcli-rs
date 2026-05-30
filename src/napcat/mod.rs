@@ -33,6 +33,14 @@ enum Outgoing {
     Rpc { payload: String },
 }
 
+impl Outgoing {
+    fn into_message(self) -> Message {
+        match self {
+            Outgoing::Rpc { payload } => Message::Text(payload),
+        }
+    }
+}
+
 // ─── Client ──────────────────────────────────────────────────
 
 pub struct NapcatClient {
@@ -89,7 +97,7 @@ impl NapcatClient {
                                         "[NapCat event] type={:?} from={:?} msg={:?}",
                                         evt.message_type,
                                         evt.user_id,
-                                        evt.raw_message.as_ref().map(|s| s.as_str())
+                                        evt.raw_message.as_deref()
                                     );
                                 }
                             }
@@ -118,8 +126,7 @@ impl NapcatClient {
             loop {
                 tokio::select! {
                     Some(out) = cmd_rx.recv() => {
-                        let Outgoing::Rpc { payload } = out;
-                        if write.send(Message::Text(payload.into())).await.is_err() {
+                        if write.send(out.into_message()).await.is_err() {
                             eprintln!("[NapCat] write error");
                             break;
                         }

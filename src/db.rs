@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn default_db_path() -> PathBuf {
     dirs::document_dir()
@@ -71,9 +71,9 @@ pub fn detect_db_path() -> Result<PathBuf> {
     );
 }
 
-fn walkdir(base: &PathBuf) -> Result<Vec<PathBuf>> {
+fn walkdir(base: &Path) -> Result<Vec<PathBuf>> {
     let mut results = Vec::new();
-    let mut stack = vec![base.clone()];
+    let mut stack = vec![base.to_path_buf()];
 
     while let Some(curr) = stack.pop() {
         if let Ok(entries) = std::fs::read_dir(&curr) {
@@ -91,14 +91,14 @@ fn walkdir(base: &PathBuf) -> Result<Vec<PathBuf>> {
     Ok(results)
 }
 
-fn open_conn(path: &PathBuf) -> Result<Connection> {
+fn open_conn(path: &Path) -> Result<Connection> {
     // rusqlite::Connection is not Sync; keep connections request-scoped instead
     // of hiding one behind a global singleton.
     Connection::open(path).with_context(|| format!("无法打开 DB: {}", path.display()))
 }
 
 /// Open a rusqlite connection (public, used by db_index)
-pub fn open_db(path: &PathBuf) -> Result<Connection> {
+pub fn open_db(path: &Path) -> Result<Connection> {
     open_conn(path)
 }
 
@@ -111,9 +111,9 @@ fn get_uid_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String
 }
 
 /// 从 nt_uid_mapping_table 加载所有映射
-pub fn load_uid_mapping(path: &PathBuf) -> Result<()> {
+pub fn load_uid_mapping(path: &Path) -> Result<()> {
     // 缓存 DB 路径
-    let _ = DB_PATH_CACHE.set(path.clone());
+    let _ = DB_PATH_CACHE.set(path.to_path_buf());
 
     let conn = open_conn(path)?;
     let mut stmt = conn.prepare("SELECT schema::UID_MAPPING_ENC, schema::UID_MAPPING_QQ FROM nt_uid_mapping_table")?;
@@ -396,7 +396,8 @@ pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
         sessions.push(r);
     }
 
-    sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    sessions.sort_by_key(|s| s.timestamp);
+    sessions.reverse();
     sessions.truncate(limit);
     Ok(sessions)
 }
@@ -569,7 +570,7 @@ pub fn search_messages(
                 .map(|n| n.to_string())
                 .unwrap_or_default();
 
-            if chat_filter.map_or(true, |c| peer_id.contains(c)) {
+            if chat_filter.map(|c| peer_id.contains(c)).unwrap_or(true) {
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
@@ -619,7 +620,7 @@ pub fn search_messages(
             }
 
             let group_id: String = row.get::<_, Option<String>>(6)?.unwrap_or_default();
-            if chat_filter.map_or(true, |c| group_id.contains(c)) {
+            if chat_filter.map(|c| group_id.contains(c)).unwrap_or(true) {
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
@@ -642,7 +643,8 @@ pub fn search_messages(
         }
     }
 
-    messages.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    messages.sort_by_key(|m| m.timestamp);
+    messages.reverse();
     messages.truncate(limit);
     Ok(messages)
 }
@@ -982,13 +984,10 @@ pub fn extract_text_from_blob(data: &[u8]) -> String {
                 if !trimmed.is_empty() && trimmed.len() >= 2 {
                     let has_chinese = trimmed.chars().any(|c| {
                         let cp = c as u32;
-                        (cp >= 0x4E00 && cp <= 0x9FFF) ||  // CJK
-                        (cp >= 0x3000 && cp <= 0x303F) ||  // CJK符号
-                        (cp >= 0xFF00 && cp <= 0xFFEF)     // 全角
+                        matches!(cp, 0x4E00..=0x9FFF | 0x3000..=0x303F | 0xFF00..=0xFFEF)
                     });
                     let has_ascii_printable = trimmed.chars().all(|c| {
-                        let cp = c as u32;
-                        (cp >= 0x20 && cp < 0x7F) || cp > 0x9FFF
+                        c.is_ascii_graphic() || c as u32 > 0x9FFF
                     });
 
                     if has_chinese || (has_ascii_printable && trimmed.len() >= 3) {
@@ -1009,7 +1008,7 @@ pub fn extract_text(raw: &[u8]) -> String {
     }
 
     // 检测是否有 0x82 标记
-    let has_0x82 = raw.iter().any(|&b| b == 0x82);
+    let has_0x82 = raw.contains(&0x82);
 
     if has_0x82 {
         let result = extract_text_from_blob_scanned(raw);
@@ -1049,14 +1048,13 @@ fn extract_text_from_blob_scanned(data: &[u8]) -> String {
 /// Try to read a column as BLOB; if it fails (TEXT stored in BLOB column),
 /// fall back to reading as TEXT and converting to UTF-8 bytes.
 pub(crate) fn get_either_blob_or_text(row: &rusqlite::Row<'_>, idx: usize) -> Vec<u8> {
-    match row.get::<_, Option<Vec<u8>>>(idx) {
-        Ok(Some(v)) => return v,
-        _ => {}
+    if let Ok(Some(v)) = row.get::<_, Option<Vec<u8>>>(idx) {
+        return v;
     }
-    match row.get::<_, Option<String>>(idx) {
-        Ok(Some(s)) => return s.into_bytes(),
-        _ => Vec::new(),
+    if let Ok(Some(s)) = row.get::<_, Option<String>>(idx) {
+        return s.into_bytes();
     }
+    Vec::new()
 }
 
 pub fn detect_type(raw: &[u8]) -> String {
@@ -1150,10 +1148,10 @@ pub fn debug_tables() -> Result<()> {
             let f40050: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
             let f40009: i64 = row.get::<_, Option<i64>>(2)?.unwrap_or(0);
             // 40800 might be TEXT or BLOB; try blob first, fall back to text
-            let f40800 = get_either_blob_or_text(&row, 3);
-            let f40900 = get_either_blob_or_text(&row, 4);
-            let f40600 = get_either_blob_or_text(&row, 5);
-            if f40800.len() > 0 || f40900.len() > 0 || f40600.len() > 0 {
+            let f40800 = get_either_blob_or_text(row, 3);
+            let f40900 = get_either_blob_or_text(row, 4);
+            let f40600 = get_either_blob_or_text(row, 5);
+            if !f40800.is_empty() || !f40900.is_empty() || !f40600.is_empty() {
                 println!("Row {}: schema::MSG_ID={}, schema::TIMESTAMP={}, schema::IS_SENDER_ME={}", count, f40001, f40050, f40009);
                 println!("  schema::CONTENT len={} hex[0..20]={:?}", f40800.len(), &f40800[..f40800.len().min(20)]);
                 println!("  [40900] len={} hex[0..20]={:?}", f40900.len(), &f40900[..f40900.len().min(20)]);
@@ -1218,8 +1216,7 @@ pub fn debug_probe() -> Result<()> {
     let mut rows = stmt.query([])?;
 
     if let Some(row) = rows.next()? {
-        for i in 0..col_names.len() {
-            let col_name = &col_names[i];
+        for (i, col_name) in col_names.iter().enumerate() {
             let val = row.get_ref(i)?;
             match val {
                 ValueRef::Null => println!("[{}] {}: NULL", i, col_name),

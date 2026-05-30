@@ -6,6 +6,9 @@
 
 <p align="center">
 
+  <a href="https://github.com/2233admin/qqcli-rs/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/2233admin/qqcli-rs/CI.yml?style=flat-square&logo=github-actions&label=CI" alt="CI">
+  </a>
   <a href="https://github.com/2233admin/qqcli-rs/releases">
     <img src="https://img.shields.io/github/downloads/2233admin/qqcli-rs/total?style=flat-square&logo=github&label=下载量" alt="Downloads">
   </a>

@@ -60,8 +60,8 @@ impl MessageInfo {
             }
         }
         // CQ code stripping fallback
-        let mut s = self.content.clone();
-        s = s.replace('\u{200b}', " ").replace('\u{3000}', " ");
+        let mut s = self.content.replace('\u{200b}', " ");
+        s = s.replace('\u{3000}', " ");
         for (pat, repl) in [
             (r"\[CQ:at,[^\]]+\]", ""),
             (r"\[CQ:image,[^\]]+\]", "[图片]"),

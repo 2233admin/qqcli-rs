@@ -268,7 +268,7 @@ pub fn ensure_decrypted(force: bool) -> Result<PathBuf> {
         DbStatus::Plaintext(p) => {
             println!("DB 状态: 明文 OK");
             println!("DB 路径: {}", p.display());
-            return Ok(p);
+            Ok(p)
         }
         DbStatus::NotFound(raw) => {
             bail!(

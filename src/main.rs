@@ -239,15 +239,12 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Completion { shell } => {
-            generate(*shell, &mut Cli::command(), "qq", &mut io::stdout());
-            return Ok(());
-        }
-        _ => {}
+    if let Commands::Completion { shell } = &cli.command {
+        generate(*shell, &mut Cli::command(), "qq", &mut io::stdout());
+        return Ok(());
     }
 
-    let result = match &cli.command {
+    match &cli.command {
         Commands::Init { force } => commands::init(*force),
         Commands::DebugTables {} => commands::debug_tables(),
         Commands::DebugProbe {} => commands::debug_probe(),
@@ -343,7 +340,5 @@ fn main() -> Result<()> {
             let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             commands::plugin(sub, *port, &args_ref)
         }
-    };
-
-    result
+    }
 }

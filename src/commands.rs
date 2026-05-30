@@ -242,7 +242,7 @@ pub fn bundle_media(chat: &str, since: Option<&str>, until: Option<&str>, limit:
     let mut image_urls: Vec<(String, String)> = Vec::new(); // (url, filename)
     for m in &messages {
         for url in extract_image_urls(&m.content) {
-            let filename = url.split('/').last().unwrap_or("image.jpg").to_string();
+            let filename = url.rsplit('/').next().unwrap_or("image.jpg").to_string();
             image_urls.push((url, filename));
         }
     }
@@ -400,7 +400,8 @@ pub fn new_messages(limit: usize, json_flag: bool) -> Result<()> {
         });
     }
 
-    messages.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    messages.sort_by_key(|m| m.timestamp);
+    messages.reverse();
     messages.truncate(limit);
 
     if json_flag {
