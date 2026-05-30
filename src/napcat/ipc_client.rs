@@ -93,10 +93,12 @@ impl NapcatIpcClient {
         Ok(success)
     }
 
+    #[allow(dead_code)]
     pub fn get_login_info(&self) -> Result<serde_json::Value> {
         self.send_request("get_login_info", serde_json::json!({}))
     }
 
+    #[allow(dead_code)]
     pub fn get_login_list(&self) -> Result<Vec<serde_json::Value>> {
         let resp = self.send_request("get_login_list", serde_json::json!({}))?;
         let result = resp.get("result").context("No result")?;

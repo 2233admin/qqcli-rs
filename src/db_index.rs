@@ -220,6 +220,7 @@ pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<Se
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SearchResult {
     pub msg_id: i64,
     pub chat_id: String,

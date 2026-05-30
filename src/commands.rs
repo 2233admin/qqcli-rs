@@ -350,7 +350,7 @@ pub fn members(chat: &str, json_flag: bool) -> Result<()> {
 }
 
 pub fn new_messages(limit: usize, json_flag: bool) -> Result<()> {
-    let since_ts = std::time::SystemTime::now()
+    let _since_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64 - 86400)
         .unwrap_or(0);
