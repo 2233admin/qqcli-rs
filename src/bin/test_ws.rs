@@ -8,18 +8,18 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 async fn main() -> Result<()> {
     let url = "ws://127.0.0.1:4301";
     println!("Connecting to {}...", url);
-    
+
     let result = timeout(Duration::from_secs(30), connect_async(url)).await;
-    
+
     match result {
         Ok(Ok((ws_stream, response))) => {
             println!("Connected! Status: {:?}", response.status());
             let (mut write, mut read) = ws_stream.split();
-            
+
             let req = r#"{"action":".get_login_info","params":{}}"#;
             write.send(Message::Text(req.into())).await?;
             println!("Sent: {}", req);
-            
+
             if let Some(msg) = timeout(Duration::from_secs(5), read.next()).await? {
                 match msg? {
                     Message::Text(t) => println!("Response: {}", t),
@@ -35,6 +35,6 @@ async fn main() -> Result<()> {
             println!("Connection timeout (30s)");
         }
     }
-    
+
     Ok(())
 }

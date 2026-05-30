@@ -24,7 +24,10 @@ pub fn default_db_path() -> PathBuf {
 pub fn default_decrypted_db_path() -> Option<PathBuf> {
     // 优先使用 .archive 中的解密 DB（更大，包含更多历史消息）
     if let Some(downloads) = dirs::download_dir() {
-        let archived = downloads.join("voile").join(".archive").join("nt_msg_decrypted.db");
+        let archived = downloads
+            .join("voile")
+            .join(".archive")
+            .join("nt_msg_decrypted.db");
         if archived.exists() {
             return Some(archived);
         }
@@ -103,7 +106,8 @@ pub fn open_db(path: &Path) -> Result<Connection> {
 }
 
 // UID 映射缓存: 加密 UID -> 真实 QQ号
-static UID_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::OnceLock::new();
+static UID_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> =
+    std::sync::OnceLock::new();
 static DB_PATH_CACHE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 fn get_uid_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, i64>> {
@@ -116,7 +120,9 @@ pub fn load_uid_mapping(path: &Path) -> Result<()> {
     let _ = DB_PATH_CACHE.set(path.to_path_buf());
 
     let conn = open_conn(path)?;
-    let mut stmt = conn.prepare("SELECT schema::UID_MAPPING_ENC, schema::UID_MAPPING_QQ FROM nt_uid_mapping_table")?;
+    let mut stmt = conn.prepare(
+        "SELECT schema::UID_MAPPING_ENC, schema::UID_MAPPING_QQ FROM nt_uid_mapping_table",
+    )?;
     let mut rows = stmt.query([])?;
     let cache = get_uid_cache();
     let mut guard = cache.lock().map_err(|_| anyhow::anyhow!("lock poisoned"))?;
@@ -167,10 +173,22 @@ impl Message {
         let is_group = chat_id.parse::<i64>().is_err() || chat_id.starts_with("group:");
 
         NormalizedMessage {
-            chat_type: if is_group { "group".to_string() } else { "private".to_string() },
+            chat_type: if is_group {
+                "group".to_string()
+            } else {
+                "private".to_string()
+            },
             chat_id: chat_id.to_string(),
-            group_id: if is_group { Some(chat_id.to_string()) } else { None },
-            peer_id: if !is_group { Some(chat_id.to_string()) } else { None },
+            group_id: if is_group {
+                Some(chat_id.to_string())
+            } else {
+                None
+            },
+            peer_id: if !is_group {
+                Some(chat_id.to_string())
+            } else {
+                None
+            },
             chat_name: None,
             sender_id: self.sender_id.to_string(),
             sender_name: self.sender_name.clone(),
@@ -202,7 +220,10 @@ fn extract_image_names(content: &str) -> Vec<String> {
     let mut names = Vec::new();
     for line in content.lines() {
         if let Some(start) = line.find("[图片]") {
-            if let Some(name) = line.get(start + 4..).and_then(|s| s.split_whitespace().next()) {
+            if let Some(name) = line
+                .get(start + 4..)
+                .and_then(|s| s.split_whitespace().next())
+            {
                 if name.ends_with(".jpg") || name.ends_with(".png") || name.ends_with(".gif") {
                     names.push(name.to_string());
                 }
@@ -231,7 +252,7 @@ fn extract_emoji_tokens(content: &str) -> Vec<String> {
 /// 与 qq-data-exporter 兼容的消息格式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormalizedMessage {
-    pub chat_type: String,        // "group" | "private"
+    pub chat_type: String, // "group" | "private"
     pub chat_id: String,
     #[serde(rename = "group_id", skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
@@ -574,7 +595,8 @@ pub fn search_messages(
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
-                let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+                let sender_name =
+                    cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
                 messages.push(Message {
                     id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
                     sender_id,
@@ -624,7 +646,8 @@ pub fn search_messages(
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
-                let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+                let sender_name =
+                    cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
                 messages.push(Message {
                     id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
                     sender_id,
@@ -968,7 +991,9 @@ pub fn extract_text_from_blob(data: &[u8]) -> String {
                 let b = data[j];
                 j += 1;
                 len |= ((b & 0x7F) as u64) << shift;
-                if (b & 0x80) == 0 { break; }
+                if (b & 0x80) == 0 {
+                    break;
+                }
                 shift += 7;
             }
 
@@ -986,9 +1011,9 @@ pub fn extract_text_from_blob(data: &[u8]) -> String {
                         let cp = c as u32;
                         matches!(cp, 0x4E00..=0x9FFF | 0x3000..=0x303F | 0xFF00..=0xFFEF)
                     });
-                    let has_ascii_printable = trimmed.chars().all(|c| {
-                        c.is_ascii_graphic() || c as u32 > 0x9FFF
-                    });
+                    let has_ascii_printable = trimmed
+                        .chars()
+                        .all(|c| c.is_ascii_graphic() || c as u32 > 0x9FFF);
 
                     if has_chinese || (has_ascii_printable && trimmed.len() >= 3) {
                         return trimmed.to_string();
@@ -1114,10 +1139,10 @@ pub fn debug_tables() -> Result<()> {
     let conn = open_conn(&path)?;
 
     // 列出所有表
-    let mut stmt = conn.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    )?;
-    let tables: Vec<String> = stmt.query_map([], |row| row.get(0))?
+    let mut stmt =
+        conn.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")?;
+    let tables: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
         .filter_map(|r| r.ok())
         .collect();
     println!("=== Tables ===");
@@ -1129,11 +1154,23 @@ pub fn debug_tables() -> Result<()> {
     if tables.iter().any(|t| t == "c2c_msg_table") {
         println!("\n=== c2c_msg_table columns ===");
         let mut stmt = conn.prepare("PRAGMA table_info(c2c_msg_table)")?;
-        let cols: Vec<(i64, String, String, i64, Option<String>, i64)> = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let cols: Vec<(i64, String, String, i64, Option<String>, i64)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         for (cid, name, ctype, notnull, dflt, pk) in cols {
-            println!("  [{}] {} {} NOT_NULL={} DEFAULT={:?} PK={}", cid, name, ctype, notnull, dflt, pk);
+            println!(
+                "  [{}] {} {} NOT_NULL={} DEFAULT={:?} PK={}",
+                cid, name, ctype, notnull, dflt, pk
+            );
         }
 
         // 查找有非空BLOB的记录
@@ -1152,13 +1189,30 @@ pub fn debug_tables() -> Result<()> {
             let f40900 = get_either_blob_or_text(row, 4);
             let f40600 = get_either_blob_or_text(row, 5);
             if !f40800.is_empty() || !f40900.is_empty() || !f40600.is_empty() {
-                println!("Row {}: schema::MSG_ID={}, schema::TIMESTAMP={}, schema::IS_SENDER_ME={}", count, f40001, f40050, f40009);
-                println!("  schema::CONTENT len={} hex[0..20]={:?}", f40800.len(), &f40800[..f40800.len().min(20)]);
-                println!("  [40900] len={} hex[0..20]={:?}", f40900.len(), &f40900[..f40900.len().min(20)]);
-                println!("  [40600] len={} hex[0..20]={:?}", f40600.len(), &f40600[..f40600.len().min(20)]);
+                println!(
+                    "Row {}: schema::MSG_ID={}, schema::TIMESTAMP={}, schema::IS_SENDER_ME={}",
+                    count, f40001, f40050, f40009
+                );
+                println!(
+                    "  schema::CONTENT len={} hex[0..20]={:?}",
+                    f40800.len(),
+                    &f40800[..f40800.len().min(20)]
+                );
+                println!(
+                    "  [40900] len={} hex[0..20]={:?}",
+                    f40900.len(),
+                    &f40900[..f40900.len().min(20)]
+                );
+                println!(
+                    "  [40600] len={} hex[0..20]={:?}",
+                    f40600.len(),
+                    &f40600[..f40600.len().min(20)]
+                );
             }
             count += 1;
-            if count >= 50 { break; }
+            if count >= 50 {
+                break;
+            }
         }
         println!("Checked {} rows", count);
 
@@ -1175,25 +1229,46 @@ pub fn debug_tables() -> Result<()> {
             let f40021: String = row.get::<_, Option<String>>(2)?.unwrap_or_default();
             let f40800: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
             let has_non_ascii = f40800.chars().any(|c| !c.is_ascii() || c == '\u{FFFD}');
-            println!("Row {}: schema::MSG_ID={}, schema::TIMESTAMP={}, schema::C2C_SENDER_NAME='{}', schema::CONTENT len={}, has_replacement={}",
-                count, f40001, f40050, f40021, f40800.len(), has_non_ascii);
+            println!(
+                "Row {}: schema::MSG_ID={}, schema::TIMESTAMP={}, schema::C2C_SENDER_NAME='{}', schema::CONTENT len={}, has_replacement={}",
+                count,
+                f40001,
+                f40050,
+                f40021,
+                f40800.len(),
+                has_non_ascii
+            );
             if has_non_ascii {
-                println!("  First 50 chars: {:?}", &f40800.chars().take(50).collect::<String>());
+                println!(
+                    "  First 50 chars: {:?}",
+                    &f40800.chars().take(50).collect::<String>()
+                );
             }
             count += 1;
         }
-
     }
 
     // 检查群聊表
     if tables.iter().any(|t| t == "dataline_msg_table") {
         println!("\n=== dataline_msg_table columns ===");
         let mut stmt = conn.prepare("PRAGMA table_info(dataline_msg_table)")?;
-        let cols: Vec<(i64, String, String, i64, Option<String>, i64)> = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let cols: Vec<(i64, String, String, i64, Option<String>, i64)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         for (cid, name, ctype, notnull, dflt, pk) in cols {
-            println!("  [{}] {} {} NOT_NULL={} DEFAULT={:?} PK={}", cid, name, ctype, notnull, dflt, pk);
+            println!(
+                "  [{}] {} {} NOT_NULL={} DEFAULT={:?} PK={}",
+                cid, name, ctype, notnull, dflt, pk
+            );
         }
     }
 
@@ -1209,9 +1284,7 @@ pub fn debug_probe() -> Result<()> {
     println!("=== Probing c2c_msg_table BLOB columns ===\n");
 
     // 找一个有内容的记录，探测所有列
-    let mut stmt = conn.prepare(
-        "SELECT * FROM c2c_msg_table LIMIT 1"
-    )?;
+    let mut stmt = conn.prepare("SELECT * FROM c2c_msg_table LIMIT 1")?;
     let col_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     let mut rows = stmt.query([])?;
 
@@ -1225,14 +1298,27 @@ pub fn debug_probe() -> Result<()> {
                 ValueRef::Text(s) => {
                     let s = std::str::from_utf8(s).unwrap_or("(invalid utf8)");
                     if s.len() > 100 {
-                        println!("[{}] {}: TEXT(len={}) = '{}...'", i, col_name, s.len(), &s[..100]);
+                        println!(
+                            "[{}] {}: TEXT(len={}) = '{}...'",
+                            i,
+                            col_name,
+                            s.len(),
+                            &s[..100]
+                        );
                     } else {
                         println!("[{}] {}: TEXT = '{}'", i, col_name, s);
                     }
                 }
                 ValueRef::Blob(b) => {
-                    let hex: Vec<String> = b.iter().take(30).map(|&x| format!("{:02x}", x)).collect();
-                    println!("[{}] {}: BLOB(len={}) hex[0..30]=[{}]", i, col_name, b.len(), hex.join(" "));
+                    let hex: Vec<String> =
+                        b.iter().take(30).map(|&x| format!("{:02x}", x)).collect();
+                    println!(
+                        "[{}] {}: BLOB(len={}) hex[0..30]=[{}]",
+                        i,
+                        col_name,
+                        b.len(),
+                        hex.join(" ")
+                    );
                 }
             }
         }
@@ -1258,12 +1344,22 @@ pub fn debug_probe() -> Result<()> {
         let marker = if has_content { "***" } else { "" };
 
         println!("\n[{}] {} {} {}", marker, id, ts, name);
-        println!("  [40090] len={} '{}'", f40090.len(), &f40090[..f40090.len().min(80)]);
-        println!("  [40093] len={} '{}'", f40093.len(), &f40093[..f40093.len().min(80)]);
+        println!(
+            "  [40090] len={} '{}'",
+            f40090.len(),
+            &f40090[..f40090.len().min(80)]
+        );
+        println!(
+            "  [40093] len={} '{}'",
+            f40093.len(),
+            &f40093[..f40093.len().min(80)]
+        );
         println!("  schema::CONTENT len={}", f40800.len());
 
         count += 1;
-        if count >= 10 { break; }
+        if count >= 10 {
+            break;
+        }
     }
 
     Ok(())

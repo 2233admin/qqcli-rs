@@ -10,12 +10,12 @@ use crate::napcat::models::{
     FriendInfo, GroupInfo, JsonRpcRequest, LoginInfo, MessageEvent, MessageInfo, SendResult,
     VersionInfo,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 static NEXT_ECHO: AtomicU64 = AtomicU64::new(1);
@@ -63,11 +63,14 @@ impl NapcatClient {
         eprintln!("[NapCat] connecting to {} ...", parsed_url);
 
         // Handshake with 10s timeout
-        let ws_stream = tokio::time::timeout(std::time::Duration::from_secs(10), connect_async(&parsed_url))
-            .await
-            .map_err(|_| anyhow!("连接超时 (10s)，请确认 NapCat WebSocket 已启动且端口可访问"))?
-            .map_err(|e| anyhow!("WebSocket 连接失败: {}", e))?
-            .0;
+        let ws_stream = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            connect_async(&parsed_url),
+        )
+        .await
+        .map_err(|_| anyhow!("连接超时 (10s)，请确认 NapCat WebSocket 已启动且端口可访问"))?
+        .map_err(|e| anyhow!("WebSocket 连接失败: {}", e))?
+        .0;
 
         eprintln!("[NapCat] 已连接!");
 
@@ -144,7 +147,10 @@ impl NapcatClient {
             read_task.abort();
         });
 
-        Ok(Self { cmd_tx, _pending: pending })
+        Ok(Self {
+            cmd_tx,
+            _pending: pending,
+        })
     }
 
     /// Issue an RPC call and wait for its response.
@@ -170,7 +176,9 @@ impl NapcatClient {
     /// Get self login info
     pub async fn get_login_info(&self) -> Result<LoginInfo> {
         let resp: serde_json::Value = self.rpc("get_login_info", serde_json::json!({})).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in login_info response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in login_info response"))?;
         serde_json::from_value(data.clone())
             .map_err(|e| anyhow!("parse login_info failed: {} — data={:?}", e, data))
     }
@@ -178,7 +186,9 @@ impl NapcatClient {
     /// Get NapCat version info
     pub async fn get_version_info(&self) -> Result<VersionInfo> {
         let resp: serde_json::Value = self.rpc("get_version_info", serde_json::json!({})).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in version_info response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in version_info response"))?;
         serde_json::from_value(data.clone())
             .map_err(|e| anyhow!("parse version_info failed: {} — data={:?}", e, data))
     }
@@ -186,7 +196,9 @@ impl NapcatClient {
     /// Get friend list
     pub async fn get_friend_list(&self) -> Result<Vec<FriendInfo>> {
         let resp = self.rpc("get_friend_list", serde_json::json!({})).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in friend_list response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in friend_list response"))?;
         let list = data
             .as_array()
             .cloned()
@@ -199,7 +211,9 @@ impl NapcatClient {
     /// Get group list
     pub async fn get_group_list(&self) -> Result<Vec<GroupInfo>> {
         let resp = self.rpc("get_group_list", serde_json::json!({})).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in group_list response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in group_list response"))?;
         let list = data
             .as_array()
             .cloned()
@@ -234,7 +248,9 @@ impl NapcatClient {
         }
 
         let resp = self.rpc("get_msg_history", params).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in get_msg_history response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in get_msg_history response"))?;
         let arr = data
             .as_array()
             .cloned()
@@ -251,7 +267,9 @@ impl NapcatClient {
             "message": message,
         });
         let resp = self.rpc("send_private_msg", params).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in send_private_msg response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in send_private_msg response"))?;
         serde_json::from_value(data.clone())
             .map_err(|e| anyhow!("parse send_private_msg result: {} — data={:?}", e, data))
     }
@@ -263,7 +281,9 @@ impl NapcatClient {
             "message": message,
         });
         let resp = self.rpc("send_group_msg", params).await?;
-        let data = resp.get("data").ok_or_else(|| anyhow!("no data in send_group_msg response"))?;
+        let data = resp
+            .get("data")
+            .ok_or_else(|| anyhow!("no data in send_group_msg response"))?;
         serde_json::from_value(data.clone())
             .map_err(|e| anyhow!("parse send_group_msg result: {} — data={:?}", e, data))
     }
@@ -275,7 +295,11 @@ const DEFAULT_NAPCAT_URL: &str = "ws://127.0.0.1:18301";
 
 /// Run a napcat subcommand: whoami | friends | groups | history | send
 pub async fn run(sub: &str, url: &str, token: Option<&str>, args: &[&str]) -> Result<()> {
-    let url = if url.is_empty() { DEFAULT_NAPCAT_URL } else { url };
+    let url = if url.is_empty() {
+        DEFAULT_NAPCAT_URL
+    } else {
+        url
+    };
     let client = NapcatClient::connect(url, token).await?;
 
     match sub {

@@ -87,7 +87,8 @@ impl NapcatIpcClient {
 
     pub fn ping(&self) -> Result<bool> {
         let resp = self.send_request("ping", serde_json::json!({}))?;
-        let success = resp.get("success")
+        let success = resp
+            .get("success")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         Ok(success)
@@ -106,17 +107,23 @@ impl NapcatIpcClient {
     }
 
     pub fn send_private_msg(&self, uin: &str, message: &str) -> Result<serde_json::Value> {
-        self.send_request("send_private_msg", serde_json::json!({
-            "uin": uin,
-            "message": message
-        }))
+        self.send_request(
+            "send_private_msg",
+            serde_json::json!({
+                "uin": uin,
+                "message": message
+            }),
+        )
     }
 
     pub fn send_group_msg(&self, group_id: &str, message: &str) -> Result<serde_json::Value> {
-        self.send_request("send_group_msg", serde_json::json!({
-            "groupId": group_id,
-            "message": message
-        }))
+        self.send_request(
+            "send_group_msg",
+            serde_json::json!({
+                "groupId": group_id,
+                "message": message
+            }),
+        )
     }
 
     pub fn get_friend_list(&self) -> Result<Vec<serde_json::Value>> {
@@ -132,9 +139,12 @@ impl NapcatIpcClient {
     }
 
     pub fn get_group_members(&self, group_id: &str) -> Result<Vec<serde_json::Value>> {
-        let resp = self.send_request("get_group_members", serde_json::json!({
-            "groupId": group_id
-        }))?;
+        let resp = self.send_request(
+            "get_group_members",
+            serde_json::json!({
+                "groupId": group_id
+            }),
+        )?;
         let result = resp.get("result").context("No result")?;
         Ok(result.as_array().cloned().unwrap_or_default())
     }

@@ -7,7 +7,7 @@ use crate::decrypt;
 use crate::napcat::ipc_client::NapcatIpcClient;
 use crate::output::YamlWriter;
 use crate::schema;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 /// 检测/初始化 DB: 查找 DB，检测加密状态，必要时自动解密
 pub fn init(force: bool) -> Result<()> {
@@ -62,7 +62,10 @@ pub fn init(force: bool) -> Result<()> {
                         eprintln!("手动解密步骤:");
                         eprintln!("  1. 下载 https://github.com/yourusername/qq-nt-decrypt");
                         eprintln!("  2. 运行 windows_ntqq_get_key.ps1 获取密钥");
-                        eprintln!("  3. 将密钥保存到: {}", crate::config::config_path().display());
+                        eprintln!(
+                            "  3. 将密钥保存到: {}",
+                            crate::config::config_path().display()
+                        );
                     }
                 }
             } else {
@@ -132,7 +135,10 @@ pub fn search(
             } else {
                 r.content
             };
-            println!("[{}] {} ({}): {}", r.time_str, r.sender_name, r.chat_id, content);
+            println!(
+                "[{}] {} ({}): {}",
+                r.time_str, r.sender_name, r.chat_id, content
+            );
         }
         return Ok(());
     }
@@ -228,10 +234,16 @@ pub fn export(
 }
 
 /// 打包聊天记录中的媒体文件
-pub fn bundle_media(chat: &str, since: Option<&str>, until: Option<&str>, limit: usize, output: &str) -> Result<()> {
+pub fn bundle_media(
+    chat: &str,
+    since: Option<&str>,
+    until: Option<&str>,
+    limit: usize,
+    output: &str,
+) -> Result<()> {
+    use md5;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
-    use md5;
 
     let since_ts = since.and_then(|s| db::parse_ts(s).ok());
     let until_ts = until.and_then(|s| db::parse_ts(s).ok());
@@ -257,8 +269,7 @@ pub fn bundle_media(chat: &str, since: Option<&str>, until: Option<&str>, limit:
     // 创建 zip 文件
     let file = std::fs::File::create(output)?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -308,7 +319,9 @@ fn extract_image_urls(content: &str) -> Vec<String> {
             if let Some(start) = line.find("fileid=") {
                 if let Some(rest) = line.get(start..) {
                     let params = &rest[7..rest.len().min(200)];
-                    if let Some(end) = params.find(|c: char| !c.is_alphanumeric() && c != '=' && c != '_' && c != '-' && c != '~') {
+                    if let Some(end) = params.find(|c: char| {
+                        !c.is_alphanumeric() && c != '=' && c != '_' && c != '-' && c != '~'
+                    }) {
                         let fileid = &params[..end.min(100)];
                         let full_url = format!("https://multimedia.nt.qq.com.cn{}", params);
                         if !urls.iter().any(|u: &String| u.contains(fileid)) {
@@ -496,7 +509,12 @@ pub async fn sync(url: &str, token: Option<&str>) -> Result<()> {
         let dt = DateTime::from_timestamp(c.synced_at, 0)
             .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| c.synced_at.to_string());
-        println!("同步完成: {} 个好友, {} 个群, 时间 {}", friends.len(), groups.len(), dt);
+        println!(
+            "同步完成: {} 个好友, {} 个群, 时间 {}",
+            friends.len(),
+            groups.len(),
+            dt
+        );
     }
 
     Ok(())
@@ -511,7 +529,11 @@ pub fn index() -> Result<()> {
         groups: vec![],
     });
     let count = db_index::import_all(&db_path, &cache)?;
-    println!("索引完成: {} 条消息 -> {}", count, db_index::get_path()?.display());
+    println!(
+        "索引完成: {} 条消息 -> {}",
+        count,
+        db_index::get_path()?.display()
+    );
     Ok(())
 }
 
@@ -528,9 +550,15 @@ pub fn plugin(sub: &str, port: u16, args: &[&str]) -> Result<()> {
             }
         }
         "send" => {
-            let msg_type = args.first().ok_or_else(|| anyhow!("用法: plugin send <private|group> <target> <message...>"))?;
-            let target = args.get(1).ok_or_else(|| anyhow!("用法: plugin send <private|group> <target> <message...>"))?;
-            let message = args.get(2..).map(|a| a.join(" ")).ok_or_else(|| anyhow!("用法: plugin send <private|group> <target> <message...>"))?;
+            let msg_type = args.first().ok_or_else(|| {
+                anyhow!("用法: plugin send <private|group> <target> <message...>")
+            })?;
+            let target = args.get(1).ok_or_else(|| {
+                anyhow!("用法: plugin send <private|group> <target> <message...>")
+            })?;
+            let message = args.get(2..).map(|a| a.join(" ")).ok_or_else(|| {
+                anyhow!("用法: plugin send <private|group> <target> <message...>")
+            })?;
 
             if message.is_empty() {
                 anyhow::bail!("消息内容不能为空");
@@ -540,7 +568,8 @@ pub fn plugin(sub: &str, port: u16, args: &[&str]) -> Result<()> {
                 "private" => client.send_private_msg(target, &message),
                 "group" => client.send_group_msg(target, &message),
                 _ => anyhow::bail!("msg_type 必须是 private 或 group"),
-            }.map_err(|e| anyhow!("发送失败: {}", e))?;
+            }
+            .map_err(|e| anyhow!("发送失败: {}", e))?;
 
             if let Some(success) = result.get("success").and_then(|v| v.as_bool()) {
                 if success {
@@ -555,7 +584,11 @@ pub fn plugin(sub: &str, port: u16, args: &[&str]) -> Result<()> {
             println!("=== 好友列表 ({}个) ===", friends.len());
             for f in &friends {
                 let nick = f.get("nick").and_then(|v| v.as_str()).unwrap_or("?");
-                let uin = f.get("uin").or(f.get("uid")).and_then(|v| v.as_str()).unwrap_or("?");
+                let uin = f
+                    .get("uin")
+                    .or(f.get("uid"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
                 println!("- {} ({})", nick, uin);
             }
         }
@@ -563,18 +596,39 @@ pub fn plugin(sub: &str, port: u16, args: &[&str]) -> Result<()> {
             let groups = client.get_group_list().map_err(|e| anyhow!("{}", e))?;
             println!("=== 群列表 ({}个) ===", groups.len());
             for g in &groups {
-                let name = g.get("groupName").or(g.get("name")).and_then(|v| v.as_str()).unwrap_or("?");
-                let code = g.get("groupCode").or(g.get("code")).or(g.get("id")).and_then(|v| v.as_str()).unwrap_or("?");
+                let name = g
+                    .get("groupName")
+                    .or(g.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let code = g
+                    .get("groupCode")
+                    .or(g.get("code"))
+                    .or(g.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
                 println!("- {} ({})", name, code);
             }
         }
         "members" => {
-            let group_id = args.first().ok_or_else(|| anyhow!("用法: plugin members <group_id>"))?;
-            let members = client.get_group_members(group_id).map_err(|e| anyhow!("{}", e))?;
+            let group_id = args
+                .first()
+                .ok_or_else(|| anyhow!("用法: plugin members <group_id>"))?;
+            let members = client
+                .get_group_members(group_id)
+                .map_err(|e| anyhow!("{}", e))?;
             println!("=== 群成员 ({}个) ===", members.len());
             for m in &members {
-                let nick = m.get("nick").or(m.get("nickname")).and_then(|v| v.as_str()).unwrap_or("?");
-                let uin = m.get("uin").or(m.get("uid")).and_then(|v| v.as_str()).unwrap_or("?");
+                let nick = m
+                    .get("nick")
+                    .or(m.get("nickname"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let uin = m
+                    .get("uin")
+                    .or(m.get("uid"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
                 let card = m.get("cardName").or(m.get("card")).and_then(|v| v.as_str());
                 if let Some(c) = card {
                     println!("- {} ({}) [{}]", c, uin, nick);
@@ -587,8 +641,16 @@ pub fn plugin(sub: &str, port: u16, args: &[&str]) -> Result<()> {
             let chats = client.get_recent_chats().map_err(|e| anyhow!("{}", e))?;
             println!("=== 最近会话 ({}个) ===", chats.len());
             for c in &chats {
-                let name = c.get("nickName").or(c.get("name")).and_then(|v| v.as_str()).unwrap_or("?");
-                let id = c.get("peerUid").or(c.get("uid")).and_then(|v| v.as_str()).unwrap_or("?");
+                let name = c
+                    .get("nickName")
+                    .or(c.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let id = c
+                    .get("peerUid")
+                    .or(c.get("uid"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
                 let chat_type = c.get("chatType").and_then(|v| v.as_i64()).unwrap_or(0);
                 let type_str = match chat_type {
                     1 => "私聊",

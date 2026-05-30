@@ -6,7 +6,7 @@
 //!  3. 如果密钥已缓存，直接解密
 //!  4. 输出解密后的 DB 路径
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,7 +17,10 @@ pub enum DbStatus {
     /// DB 未加密，可直接使用
     Plaintext(PathBuf),
     /// DB 已加密，需要解密
-    Encrypted { raw_db: PathBuf, key: Option<String> },
+    Encrypted {
+        raw_db: PathBuf,
+        key: Option<String>,
+    },
     /// DB 文件不存在
     NotFound(PathBuf),
 }
@@ -58,9 +61,7 @@ pub fn detect_db_status() -> DbStatus {
     }
 
     // 3. 尝试用已知密钥解密检测 (如果已缓存)
-    let key = crate::config::get_config()
-        .ok()
-        .and_then(|c| c.db_key);
+    let key = crate::config::get_config().ok().and_then(|c| c.db_key);
 
     DbStatus::Encrypted { raw_db, key }
 }
@@ -75,7 +76,11 @@ fn default_sqlcipher_path() -> PathBuf {
 /// 默认密钥提取 PS1 脚本路径
 fn default_ps1_path() -> PathBuf {
     dirs::home_dir()
-        .map(|h| h.join("Downloads").join("qq-win-db-key").join("windows_ntqq_get_key.ps1"))
+        .map(|h| {
+            h.join("Downloads")
+                .join("qq-win-db-key")
+                .join("windows_ntqq_get_key.ps1")
+        })
         .unwrap_or_else(|| PathBuf::from("windows_ntqq_get_key.ps1"))
 }
 
@@ -152,8 +157,8 @@ DETACH DATABASE plaintext;"#,
 
 /// 剥离 SQLCipher 1024-byte 头
 fn strip_sqlcipher_header(raw: &Path, clean: &Path) -> Result<()> {
-    let mut file = std::fs::File::open(raw)
-        .with_context(|| format!("无法打开: {}", raw.display()))?;
+    let mut file =
+        std::fs::File::open(raw).with_context(|| format!("无法打开: {}", raw.display()))?;
 
     // 读取前 16 字节检测是否是 SQLCipher 格式
     let mut header = [0u8; 16];
@@ -207,9 +212,11 @@ pub fn extract_key_from_process(ps1_path: Option<&Path>) -> Result<String> {
 
     let output = Command::new("powershell")
         .args([
-            "-ExecutionPolicy", "Bypass",
+            "-ExecutionPolicy",
+            "Bypass",
             "-NoProfile",
-            "-File", &script.display().to_string(),
+            "-File",
+            &script.display().to_string(),
         ])
         .output()
         .with_context(|| format!("执行 PS 脚本失败: {}", script.display()))?;
@@ -243,14 +250,21 @@ fn parse_key_from_output(output: &str) -> Option<String> {
         // 匹配 "加密密钥:      <key>" 或 "Key = <key>" 或 JSON 风格 "Key": "<key>"
         if line.contains("密钥") || line.contains("Key") {
             if let Some(eq_pos) = line.find(':') {
-                let val = line[eq_pos + 1..].trim().trim_matches(|c| c == ',' || c == '"' || c == ' ');
+                let val = line[eq_pos + 1..]
+                    .trim()
+                    .trim_matches(|c| c == ',' || c == '"' || c == ' ');
                 if !val.is_empty() && val.len() == 16 && val.chars().all(|c| c.is_ascii_graphic()) {
                     return Some(val.to_string());
                 }
             }
             // JSON style
             if line.contains("Key") && line.contains(':') {
-                let after_colon = line.split(':').nth(1)?.trim().trim_matches(',').trim_matches('"');
+                let after_colon = line
+                    .split(':')
+                    .nth(1)?
+                    .trim()
+                    .trim_matches(',')
+                    .trim_matches('"');
                 if after_colon.len() == 16 && after_colon.chars().all(|c| c.is_ascii_graphic()) {
                     return Some(after_colon.to_string());
                 }
@@ -271,10 +285,7 @@ pub fn ensure_decrypted(force: bool) -> Result<PathBuf> {
             Ok(p)
         }
         DbStatus::NotFound(raw) => {
-            bail!(
-                "DB 文件不存在: {}\n请确认 QQ NT 已运行过",
-                raw.display()
-            );
+            bail!("DB 文件不存在: {}\n请确认 QQ NT 已运行过", raw.display());
         }
         DbStatus::Encrypted { raw_db, key } => {
             let key = if let Some(k) = key {

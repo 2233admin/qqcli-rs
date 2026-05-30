@@ -1,6 +1,5 @@
 //! 本地联系人缓存 (从 NapCat 同步)
 
-
 use crate::napcat::models::{FriendInfo, GroupInfo};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -31,8 +30,7 @@ pub struct ContactCache {
 }
 
 /// 内存缓存 (OnceLock 懒加载，只读一次磁盘)
-static MEM_CACHE: std::sync::OnceLock<Mutex<Option<ContactCache>>> =
-    std::sync::OnceLock::new();
+static MEM_CACHE: std::sync::OnceLock<Mutex<Option<ContactCache>>> = std::sync::OnceLock::new();
 
 fn mem_cache() -> &'static Mutex<Option<ContactCache>> {
     MEM_CACHE.get_or_init(|| Mutex::new(load_cache_from_disk()))
@@ -88,7 +86,9 @@ fn cache_dir() -> Result<PathBuf> {
 
 /// 缓存文件路径
 fn cache_path() -> PathBuf {
-    cache_dir().unwrap_or_else(|_| PathBuf::from("contacts.json")).join("contacts.json")
+    cache_dir()
+        .unwrap_or_else(|_| PathBuf::from("contacts.json"))
+        .join("contacts.json")
 }
 
 /// 从 contacts.json 加载缓存（仅磁盘读取，内部使用 mem_cache）
@@ -123,29 +123,36 @@ pub fn save_cache(friends: &[FriendInfo], groups: &[GroupInfo]) -> Result<()> {
     };
 
     let path = cache_path();
-    let text = serde_json::to_string_pretty(&cache)
-        .context("序列化联系人缓存失败")?;
-    fs::write(&path, text)
-        .with_context(|| format!("写入缓存文件失败: {}", path.display()))?;
-    println!("缓存已保存: {} (好友 {} 个, 群 {} 个)", path.display(), friends.len(), groups.len());
+    let text = serde_json::to_string_pretty(&cache).context("序列化联系人缓存失败")?;
+    fs::write(&path, text).with_context(|| format!("写入缓存文件失败: {}", path.display()))?;
+    println!(
+        "缓存已保存: {} (好友 {} 个, 群 {} 个)",
+        path.display(),
+        friends.len(),
+        groups.len()
+    );
     Ok(())
 }
 
 /// 根据 user_id 解析昵称 (优先 remark，否则 nickname)
 pub fn resolve_nickname(user_id: i64) -> Option<String> {
     let cache = load_cache()?;
-    cache.friends.into_iter().find(|f| f.user_id == user_id).map(|f| {
-        f.remark
-            .filter(|r| !r.is_empty())
-            .unwrap_or(f.nickname)
-    })
+    cache
+        .friends
+        .into_iter()
+        .find(|f| f.user_id == user_id)
+        .map(|f| f.remark.filter(|r| !r.is_empty()).unwrap_or(f.nickname))
 }
 
 /// 根据 group_id 解析群名
 #[allow(dead_code)]
 pub fn resolve_group_name(group_id: i64) -> Option<String> {
     let cache = load_cache()?;
-    cache.groups.into_iter().find(|g| g.group_id == group_id).map(|g| g.group_name)
+    cache
+        .groups
+        .into_iter()
+        .find(|g| g.group_id == group_id)
+        .map(|g| g.group_name)
 }
 
 /// 解析 sender_id，fallback 规则：
@@ -162,7 +169,15 @@ pub fn friends_map() -> HashMap<i64, FriendCache> {
         .map(|c| {
             c.friends
                 .into_iter()
-                .map(|f| (f.user_id, FriendCache { nickname: f.nickname, remark: f.remark }))
+                .map(|f| {
+                    (
+                        f.user_id,
+                        FriendCache {
+                            nickname: f.nickname,
+                            remark: f.remark,
+                        },
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default()

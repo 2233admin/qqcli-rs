@@ -48,7 +48,11 @@ impl MessageInfo {
             if let Some(segs) = v.as_array() {
                 let mut out = String::new();
                 for seg in segs {
-                    if let Some(t) = seg.get("data").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                    if let Some(t) = seg
+                        .get("data")
+                        .and_then(|d| d.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
                         out.push_str(t);
                     } else if let Some(t) = seg.as_str() {
                         out.push_str(t);
@@ -136,7 +140,11 @@ pub struct JsonRpcRequest {
 
 impl JsonRpcRequest {
     pub fn new(action: &str, params: serde_json::Value) -> Self {
-        Self { action: action.to_string(), params, echo: None }
+        Self {
+            action: action.to_string(),
+            params,
+            echo: None,
+        }
     }
 
     pub fn with_echo(mut self, echo: serde_json::Value) -> Self {

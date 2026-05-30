@@ -3,7 +3,7 @@
 use crate::cache::{self, ContactCache};
 use crate::db;
 use anyhow::{Context, Result};
-use duckdb::{params, Connection};
+use duckdb::{Connection, params};
 use std::path::{Path, PathBuf};
 
 const DB_NAME: &str = "messages.duckdb";
@@ -12,8 +12,7 @@ const DB_NAME: &str = "messages.duckdb";
 pub fn get_path() -> Result<PathBuf> {
     let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
     let dir = base.join("qqcli");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("创建目录失败: {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("创建目录失败: {}", dir.display()))?;
     Ok(dir.join(DB_NAME))
 }
 

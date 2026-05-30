@@ -24,8 +24,7 @@ pub struct QqcliConfig {
 
 /// 获取配置目录 (~/.config/qqcli/)
 pub fn config_dir() -> Result<PathBuf> {
-    let dir = dirs::config_dir()
-        .ok_or_else(|| anyhow::anyhow!("无法获取配置目录"))?;
+    let dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("无法获取配置目录"))?;
     let dir = dir.join(CONFIG_DIR);
     if !dir.exists() {
         std::fs::create_dir_all(&dir)
@@ -35,7 +34,9 @@ pub fn config_dir() -> Result<PathBuf> {
 }
 
 pub fn config_path() -> PathBuf {
-    config_dir().map(|d| d.join(CONFIG_FILE)).unwrap_or_else(|_| PathBuf::from("qqcli_config.toml"))
+    config_dir()
+        .map(|d| d.join(CONFIG_FILE))
+        .unwrap_or_else(|_| PathBuf::from("qqcli_config.toml"))
 }
 
 /// 加载配置 (不报错，只返回默认值)
@@ -55,10 +56,8 @@ pub fn save_key(key: &str) -> Result<()> {
     cfg.db_key = Some(key.to_string());
 
     let path = config_path();
-    let text = toml::to_string_pretty(&cfg)
-        .context("序列化配置失败")?;
-    std::fs::write(&path, text)
-        .with_context(|| format!("写入配置文件失败: {}", path.display()))?;
+    let text = toml::to_string_pretty(&cfg).context("序列化配置失败")?;
+    std::fs::write(&path, text).with_context(|| format!("写入配置文件失败: {}", path.display()))?;
     println!("密钥已保存到: {}", path.display());
     Ok(())
 }

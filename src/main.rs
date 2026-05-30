@@ -298,13 +298,13 @@ fn main() -> Result<()> {
             output.as_deref(),
             cli.json,
         ),
-        Commands::Bundle { chat, since, until, limit, output } => commands::bundle_media(
+        Commands::Bundle {
             chat,
-            since.as_deref(),
-            until.as_deref(),
-            *limit,
+            since,
+            until,
+            limit,
             output,
-        ),
+        } => commands::bundle_media(chat, since.as_deref(), until.as_deref(), *limit, output),
         Commands::Unread { limit } => commands::unread(*limit, cli.json),
         Commands::Members { chat } => commands::members(chat, cli.json),
         Commands::NewMessages { limit } => commands::new_messages(*limit, cli.json),
@@ -320,7 +320,12 @@ fn main() -> Result<()> {
                 .build()?;
             rt.block_on(commands::groups(url, token.as_deref()))
         }
-        Commands::Nap { sub, url, token, args } => {
+        Commands::Nap {
+            sub,
+            url,
+            token,
+            args,
+        } => {
             let token_ref = token.as_deref();
             let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             let rt = tokio::runtime::Builder::new_current_thread()
