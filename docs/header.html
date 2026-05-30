@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>qqcli - Terminal Art</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0a0a0a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+        }
+        #canvas-container canvas {
+            display: block;
+            width: 100% !important;
+            height: auto !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <script>
+        // qqcli header generative art - Digital Whispers
+        // Messages flow like particles through digital space
+
+        let params = {
+            seed: 2024,
+            messageCount: 280,
+            flowSpeed: 0.4,
+            messageLength: 0.6,
+            trailFade: 0.92,
+            bubbleDensity: 0.4
+        };
+
+        let messages = [];
+        let bubbles = [];
+        let t = 0;
+
+        // Terminal color palette
+        const PALETTE = {
+            green: '#00ff88',
+            cyan: '#00ccff',
+            yellow: '#ffcc00',
+            orange: '#ff8800',
+            purple: '#cc66ff',
+            white: '#ffffff',
+            dim: '#667788'
+        };
+
+        function setup() {
+            let canvas = createCanvas(1200, 400);
+            canvas.parent('canvas-container');
+            randomSeed(params.seed);
+            noiseSeed(params.seed);
+
+            initMessages();
+            initBubbles();
+        }
+
+        function initMessages() {
+            messages = [];
+            for (let i = 0; i < params.messageCount; i++) {
+                messages.push(new Message(
+                    random(width),
+                    random(height),
+                    random(['张三', '李四', '工作群', '小王', '系统']),
+                    generateText()
+                ));
+            }
+        }
+
+        function initBubbles() {
+            bubbles = [];
+            let count = floor(width * height * params.bubbleDensity / 15000);
+            for (let i = 0; i < count; i++) {
+                bubbles.push({
+                    x: random(width),
+                    y: random(height),
+                    size: random(30, 180),
+                    opacity: random(0.02, 0.08),
+                    speed: random(0.1, 0.3)
+                });
+            }
+        }
+
+        function generateText() {
+            let templates = [
+                '好的',
+                '收到',
+                '哈哈哈哈哈',
+                '这个可以',
+                '没问题',
+                '[图片]',
+                '[表情]',
+                '好的收到！',
+                '👍👍👍',
+                '在吗',
+                '稍等',
+                '马上',
+                'OK',
+                '收到回复',
+                '👍',
+                '好的好的'
+            ];
+            return random(templates);
+        }
+
+        class Message {
+            constructor(x, y, sender, text) {
+                this.x = x;
+                this.y = y;
+                this.sender = sender;
+                this.text = text;
+                this.vx = random(-0.5, 0.5);
+                this.vy = random(-0.2, 0.3);
+                this.opacity = random(0.1, 0.6);
+                this.size = random(9, 18);
+                this.color = random(Object.values(PALETTE));
+
+                // Chat bubble offset
+                this.bubbleW = random(60, 200);
+                this.bubbleH = random(20, 50);
+                this.bubbleOpacity = random(0.03, 0.12);
+            }
+
+            update() {
+                // Flow with noise
+                let angle = noise(this.x * 0.002, this.y * 0.002, t * 0.3) * TWO_PI * 2;
+                this.vx += cos(angle) * params.flowSpeed * 0.02;
+                this.vy += sin(angle) * params.flowSpeed * 0.01;
+
+                // Damping
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+
+                // Speed limit
+                let speed = sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > 1.5) {
+                    this.vx = (this.vx / speed) * 1.5;
+                    this.vy = (this.vy / speed) * 1.5;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Wrap around
+                if (this.x < -100) this.x = width + 100;
+                if (this.x > width + 100) this.x = -100;
+                if (this.y < -50) this.y = height + 50;
+                if (this.y > height + 50) this.y = -50;
+            }
+
+            draw() {
+                push();
+                translate(this.x, this.y);
+
+                // Chat bubble
+                noStroke();
+                let c = color(this.color);
+                c.setAlpha(this.bubbleOpacity * 255);
+                fill(c);
+
+                // Rounded rectangle
+                let r = 8;
+                beginShape();
+                vertex(-this.bubbleW/2 + r, -this.bubbleH/2);
+                vertex(this.bubbleW/2 - r, -this.bubbleH/2);
+                quadraticVertex(this.bubbleW/2, -this.bubbleH/2, this.bubbleW/2, -this.bubbleH/2 + r);
+                vertex(this.bubbleW/2, this.bubbleH/2 - r);
+                quadraticVertex(this.bubbleW/2, this.bubbleH/2, this.bubbleW/2 - r, this.bubbleH/2);
+                vertex(-this.bubbleW/2 + r, this.bubbleH/2);
+                quadraticVertex(-this.bubbleW/2, this.bubbleH/2, -this.bubbleW/2, this.bubbleH/2 - r);
+                vertex(-this.bubbleW/2, -this.bubbleH/2 + r);
+                quadraticVertex(-this.bubbleW/2, -this.bubbleH/2, -this.bubbleW/2 + r, -this.bubbleH/2);
+                endShape(CLOSE);
+
+                // Text
+                c.setAlpha(this.opacity * 255);
+                fill(c);
+                textSize(this.size);
+                textAlign(CENTER, CENTER);
+                textFont('monospace');
+                text(this.text, 0, 0);
+
+                pop();
+            }
+        }
+
+        function draw() {
+            // Fade trail
+            noStroke();
+            let bg = color(10, 10, 10);
+            bg.setAlpha(255 * (1 - params.trailFade));
+            fill(bg);
+            rect(0, 0, width, height);
+
+            // Draw ambient bubbles
+            for (let b of bubbles) {
+                noStroke();
+                let c = color(100, 120, 140);
+                c.setAlpha(b.opacity * 255);
+                fill(c);
+                ellipse(b.x, b.y, b.size, b.size * 0.6);
+
+                b.y -= b.speed;
+                if (b.y < -b.size) {
+                    b.y = height + b.size;
+                    b.x = random(width);
+                }
+            }
+
+            // Draw and update messages
+            for (let m of messages) {
+                m.update();
+                m.draw();
+            }
+
+            // Terminal cursor blink effect
+            if (frameCount % 60 < 30) {
+                push();
+                fill(color(PALETTE.green + '40'));
+                noStroke();
+                rect(30, height - 40, 10, 18);
+                pop();
+            }
+
+            t += 0.01;
+        }
+
+        // Auto-download PNG when generated
+        function keyPressed() {
+            if (key === 's' || key === 'S') {
+                saveCanvas('qqcli-header', 'png');
+            }
+        }
+    </script>
+</body>
+</html>
