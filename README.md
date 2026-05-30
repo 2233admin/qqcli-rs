@@ -1,135 +1,134 @@
 # qqcli
 
-<h1 align="center">
+<p align="center">
   <img src="docs/header.gif" alt="qqcli" width="720">
-</h1>
-
-<p align="center">
-本地 QQ 聊天记录命令行工具
 </p>
 
 <p align="center">
-  <a href="https://github.com/2233admin/qqcli-rs/releases"><img src="https://img.shields.io/badge/downloads-v0.1.0-green" alt="Downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+
+  <a href="https://github.com/2233admin/qqcli-rs/releases">
+    <img src="https://img.shields.io/github/downloads/2233admin/qqcli-rs/total?style=flat-square&logo=github&label=Downloads" alt="Downloads">
+  </a>
+  <a href="https://crates.io/crates/qqcli">
+    <img src="https://img.shields.io/crates/v/qqcli?style=flat-square&logo=rust&label=Crates.io" alt="Crates.io">
+  </a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=flat-square" alt="Platform">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
+  </a>
+
+</p>
+
+<p align="center">
+
+  <a href="README.md"><strong>English</strong></a>
+  &nbsp;·&nbsp;
+  <a href="README_CN.md"><strong>简体中文</strong></a>
+
 </p>
 
 ---
 
-## 为什么写这个
+## The Story
 
-2019年，我在找一个朋友发过的地址。
+> *Three years of frustration. Three times searching for something I knew I'd sent before.*
 
-打开 QQ → 翻会话列表 → 找到他 → 滚动 → 滚动 → 滚动 → 忘了是哪年 → 关掉 → 重来。
-
-2020年，我在找一个群里的文件。
-
-打开 QQ → 翻会话列表 → 找群 → 滚动 → 滚动 → 滚动 → 不记得文件名 → 关掉 → 重来。
-
-2021年，我在找一个重要的工作消息。
-
-打开 QQ → 翻会话列表 → 找群 → 滚动 → 滚动 → 滚动 → 不是这个群 → 关掉 → 重来。
-
-我重复了三次。
-
-每次都是同样的流程：打开 QQ、翻、滚动、关掉、重来。
-
-第三次之后我决定写个工具。
-
-现在变成了：
-
-```bash
-qq search "关键词"
+```
+2019 │ Looking for an address a friend sent me once
+     │ Open QQ → scroll → scroll → scroll → forget which year → give up
+     │
+2020 │ Looking for a file shared in a group chat
+     │ Open QQ → scroll → scroll → scroll → don't remember filename → give up
+     │
+2021 │ Looking for a work message
+     │ Open QQ → scroll → scroll → scroll → wrong group → give up
 ```
 
-不用开 QQ。不用滚动。结果直接出来。
+The third time, I wrote a tool.
 
----
-
-## 它能做什么
-
-**聊天记录**
+Now:
 ```bash
-qq sessions              # 最近会话
-qq history 123456789     # 查聊天记录
-qq history 123456789 --since 2024-01-01
-```
-
-**搜索**（先建索引）
-```bash
-qq index                # 建立搜索索引
-qq search "关键词"      # 搜
-```
-
-**导出**
-```bash
-qq export 123456789 -o chat.md        # Markdown
-qq export 123456789 --format jsonl -o chat.jsonl  # JSONL
-qq bundle 123456789 -o images.zip      # 图片打包
-```
-
-**NapCat 集成**
-```bash
-qq plugin send private 123456789 "hello"
-qq plugin friends
+qq search "keyword"     # 0.3 seconds. No QQ. No scrolling.
 ```
 
 ---
 
-## 安装
+## Features
 
-**下载二进制：** [Releases](https://github.com/2233admin/qqcli-rs/releases)
+| Command | Description |
+|---------|-------------|
+| `qq sessions` | List recent chat sessions |
+| `qq history <id>` | View chat history with timestamps |
+| `qq history <id> --since 2024-01-01` | Filter by date range |
+| `qq index` | Build full-text search index |
+| `qq search "keyword"` | Search across all messages |
+| `qq export <id> -o chat.md` | Export as Markdown |
+| `qq export <id> --format jsonl` | Export as JSONL |
+| `qq bundle <id> -o images.zip` | Download all images |
+| `qq plugin send <id> "message"` | Send message via NapCat |
+
+---
+
+## Quick Start
+
+### Download
+
+| Platform | Download |
+|----------|----------|
+| Windows | Download `qq.exe` from [Releases](https://github.com/2233admin/qqcli-rs/releases) |
+| Linux/macOS | Download `qqcli` binary |
+
+### Run
 
 ```bash
-# Windows
-qq.exe --help
+# View recent sessions
+qq sessions
 
-# Linux
-chmod +x qqcli && ./qqcli --help
-```
+# Search everything
+qq index && qq search "meeting"
 
-**源码编译：**
-```bash
-git clone https://github.com/2233admin/qqcli-rs.git
-cd qqcli-rs
-cargo build --release
+# Export a chat
+qq export 123456789 -o chat.md
 ```
 
 ---
 
-## 数据在哪
-
-读取 QQ NT 本地数据库：
+## Tech Stack
 
 ```
-Windows:  Documents\Tencent Files\{QQ号}\nt_qq\nt_db\nt_msg.db
-Linux/macOS: ~/Tencent Files/{QQ号}/nt_qq/nt_db/nt_msg.db
-```
-
-手动指定：
-```bash
-export QQCLI_DB_PATH=/path/to/nt_msg.db
+┌─────────────────────────────────────────────────────────────┐
+│                         qqcli                              │
+├─────────────────────────────────────────────────────────────┤
+│  Rust · rusqlite · DuckDB · tokio · clap                   │
+├─────────────────────────────────────────────────────────────┤
+│  QQ NT local database: Documents\Tencent Files\{QQ}\        │
+│                          nt_qq\nt_db\nt_msg.db             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 常见问题
+## FAQ
 
-**Q: 找不到数据库？**
-A: 确保 QQ NT 运行过一次。
+**Q: Database not found?**
+> Make sure QQ NT has been run at least once.
 
-**Q: 数据库加密了？**
-A: 用 [qq-nt-decrypt](https://github.com/MrXiaoM/qq-nt-decrypt) 解密。
+**Q: Database encrypted?**
+> Use [qq-nt-decrypt](https://github.com/MrXiaoM/qq-nt-decrypt) to decrypt.
 
-**Q: 搜索很慢？**
-A: 先 `qq index` 建立索引。
+**Q: Search is slow?**
+> Run `qq index` first to build the search index.
+
+**Q: Where is the database?**
+> Default location: `Documents\Tencent Files\{QQ}\nt_qq\nt_db\nt_msg.db`
+>
+> Custom path: `export QQCLI_DB_PATH=/path/to/nt_msg.db`
 
 ---
 
-## 技术栈
+## Contributing
 
-Rust · rusqlite · DuckDB · tokio · clap
-
----
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
 
 ## License
 
@@ -137,12 +136,12 @@ MIT
 
 ---
 
-## Star History
+<p align="center">
 
-<a href="https://star-history.com/#2233admin/qqcli-rs&Date">
-  <img src="https://api.star-history.com/svg?repos=2233admin/qqcli-rs&type=Date" alt="Star History" width="720">
-</a>
+[![Star History](https://api.star-history.com/svg?repos=2233admin/qqcli-rs&type=Date)](https://star-history.com/#2233admin/qqcli-rs&Date)
 
----
+</p>
 
-*省下滚动的时间，可以用来做点别的。*
+<p align="center">
+  <em>Time saved from scrolling can be used for something else.</em>
+</p>
