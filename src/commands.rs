@@ -6,8 +6,12 @@ use crate::db_index;
 use crate::decrypt;
 use crate::napcat::ipc_client::NapcatIpcClient;
 use crate::output::YamlWriter;
-use crate::schema;
 use anyhow::{Result, anyhow};
+use rusqlite::params;
+
+use crate::schema::{
+    C2C_PEER_ID, C2C_SENDER_ID, C2C_SENDER_NAME, CONTENT, IS_SENDER_ME, MSG_ID, TIMESTAMP,
+};
 
 /// 检测/初始化 DB: 查找 DB，检测加密状态，必要时自动解密
 pub fn init(force: bool) -> Result<()> {
@@ -373,25 +377,15 @@ pub fn new_messages(limit: usize, json_flag: bool) -> Result<()> {
     let mut messages: Vec<Message> = Vec::new();
 
     let sql = format!(
-        "SELECT {}, {}, {}, {}, {}, {}, {}
+        "SELECT {MSG_ID}, {C2C_SENDER_ID}, {C2C_SENDER_NAME}, {CONTENT}, {TIMESTAMP}, {IS_SENDER_ME}, {C2C_PEER_ID}
          FROM c2c_msg_table
-         WHERE {} >= {{}} AND {} IS NOT NULL
-         ORDER BY {} DESC
-         LIMIT ?",
-        schema::MSG_ID,
-        schema::C2C_SENDER_ID,
-        schema::C2C_SENDER_NAME,
-        schema::CONTENT,
-        schema::TIMESTAMP,
-        schema::IS_SENDER_ME,
-        schema::C2C_PEER_ID,
-        schema::TIMESTAMP,
-        schema::CONTENT,
-        schema::TIMESTAMP
+         WHERE {TIMESTAMP} >= ? AND {CONTENT} IS NOT NULL
+         ORDER BY {TIMESTAMP} DESC
+         LIMIT ?"
     );
 
     let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query([limit as i64])?;
+    let mut rows = stmt.query(params![_since_ts, limit as i64])?;
 
     while let Some(row) = rows.next()? {
         let content_raw: Vec<u8> = row.get(3).unwrap_or_default();

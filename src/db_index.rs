@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use duckdb::{Connection, params};
 use std::path::{Path, PathBuf};
 
+use crate::schema::{C2C_PEER_ID, CONTENT, GROUP_NAME, MSG_ID, TIMESTAMP};
+
 const DB_NAME: &str = "messages.duckdb";
 
 /// 返回 DuckDB 文件路径
@@ -59,8 +61,10 @@ pub fn import_all(sqlite_path: &Path, _cache: &ContactCache) -> Result<usize> {
     // ── 私聊 ──
     println!("导入私聊消息...");
     {
-        let sql_c2c = "SELECT schema::MSG_ID, schema::C2C_PEER_ID, schema::TIMESTAMP, schema::CONTENT FROM c2c_msg_table WHERE schema::CONTENT IS NOT NULL";
-        let mut stmt = src_conn.prepare(sql_c2c)?;
+        let sql_c2c = format!(
+            "SELECT {MSG_ID}, {C2C_PEER_ID}, {TIMESTAMP}, {CONTENT} FROM c2c_msg_table WHERE {CONTENT} IS NOT NULL"
+        );
+        let mut stmt = src_conn.prepare(&sql_c2c)?;
         let mut rows = stmt.raw_query();
 
         let tx = duck_conn.unchecked_transaction()?;
@@ -104,8 +108,10 @@ pub fn import_all(sqlite_path: &Path, _cache: &ContactCache) -> Result<usize> {
     // ── 群聊 ──
     println!("导入群聊消息...");
     {
-        let sql_group = "SELECT schema::MSG_ID, schema::GROUP_NAME, schema::TIMESTAMP, schema::CONTENT FROM dataline_msg_table WHERE schema::CONTENT IS NOT NULL";
-        let mut stmt = src_conn.prepare(sql_group)?;
+        let sql_group = format!(
+            "SELECT {MSG_ID}, {GROUP_NAME}, {TIMESTAMP}, {CONTENT} FROM dataline_msg_table WHERE {CONTENT} IS NOT NULL"
+        );
+        let mut stmt = src_conn.prepare(&sql_group)?;
         let mut rows = stmt.raw_query();
 
         let tx = duck_conn.unchecked_transaction()?;

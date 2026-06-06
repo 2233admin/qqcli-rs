@@ -11,6 +11,12 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::schema::{
+    C2C_PEER_ID, C2C_SENDER_ID, C2C_SENDER_NAME, CONTENT, FLOW_UNREAD, GROUP_MEMBER_UID,
+    GROUP_NAME, GROUP_SENDER_ID, IS_SENDER_ME, MSG_ID, TIMESTAMP, UID_MAPPING_ENC,
+    UID_MAPPING_QQ,
+};
+
 pub fn default_db_path() -> PathBuf {
     dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -122,9 +128,9 @@ pub fn load_uid_mapping(path: &Path) -> Result<()> {
     let _ = DB_PATH_CACHE.set(path.to_path_buf());
 
     let conn = open_conn(path)?;
-    let mut stmt = conn.prepare(
-        "SELECT schema::UID_MAPPING_ENC, schema::UID_MAPPING_QQ FROM nt_uid_mapping_table",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {UID_MAPPING_ENC}, {UID_MAPPING_QQ} FROM nt_uid_mapping_table"
+    ))?;
     let mut rows = stmt.query([])?;
     let cache = get_uid_cache();
     let mut guard = cache.lock().map_err(|_| anyhow::anyhow!("lock poisoned"))?;
@@ -398,14 +404,14 @@ pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
     let mut sessions = Vec::new();
 
     // 私聊会话
-    let mut stmt = conn.prepare(
-        "SELECT schema::C2C_PEER_ID, schema::GROUP_NAME, MAX(schema::TIMESTAMP)
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {C2C_PEER_ID}, {GROUP_NAME}, MAX({TIMESTAMP})
          FROM c2c_msg_table
-         WHERE schema::TIMESTAMP > 0
-         GROUP BY schema::C2C_PEER_ID, schema::GROUP_NAME
-         ORDER BY MAX(schema::TIMESTAMP) DESC
-         LIMIT ?",
-    )?;
+         WHERE {TIMESTAMP} > 0
+         GROUP BY {C2C_PEER_ID}, {GROUP_NAME}
+         ORDER BY MAX({TIMESTAMP}) DESC
+         LIMIT ?"
+    ))?;
 
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0)?;
@@ -429,14 +435,14 @@ pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
     }
 
     // 群聊会话
-    let mut stmt = conn.prepare(
-        "SELECT schema::GROUP_NAME, MAX(schema::TIMESTAMP)
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {GROUP_NAME}, MAX({TIMESTAMP})
          FROM dataline_msg_table
-         WHERE schema::TIMESTAMP > 0
-         GROUP BY schema::GROUP_NAME
-         ORDER BY MAX(schema::TIMESTAMP) DESC
-         LIMIT ?",
-    )?;
+         WHERE {TIMESTAMP} > 0
+         GROUP BY {GROUP_NAME}
+         ORDER BY MAX({TIMESTAMP}) DESC
+         LIMIT ?"
+    ))?;
 
     let rows = stmt.query_map([limit as i64], |row| {
         let group_name = row
@@ -485,10 +491,10 @@ pub fn get_messages(
         // 群聊 (dataline)
         // schema::CONTENT 列存 GBK 编码字节，CAST AS BLOB 强制读取原始字节
         let sql = format!(
-            "SELECT schema::MSG_ID,schema::GROUP_SENDER_ID,schema::C2C_SENDER_NAME,schema::CONTENT,schema::TIMESTAMP,schema::IS_SENDER_ME
+            "SELECT {MSG_ID},{GROUP_SENDER_ID},{C2C_SENDER_NAME},{CONTENT},{TIMESTAMP},{IS_SENDER_ME}
              FROM dataline_msg_table
-             WHERE schema::GROUP_NAME = ? {} AND schema::CONTENT IS NOT NULL
-             ORDER BY schema::TIMESTAMP DESC
+             WHERE {GROUP_NAME} = ? {} AND {CONTENT} IS NOT NULL
+             ORDER BY {TIMESTAMP} DESC
              LIMIT ? OFFSET ?",
             ts_where
         );
@@ -525,10 +531,10 @@ pub fn get_messages(
                 .parse::<i64>()
                 .with_context(|| format!("会话 ID 不是合法数字: {}", chat))?;
             sql = format!(
-                "SELECT schema::MSG_ID,schema::C2C_SENDER_ID,schema::C2C_SENDER_NAME,schema::CONTENT,schema::TIMESTAMP,schema::IS_SENDER_ME
+                "SELECT {MSG_ID},{C2C_SENDER_ID},{C2C_SENDER_NAME},{CONTENT},{TIMESTAMP},{IS_SENDER_ME}
                  FROM c2c_msg_table
-                 WHERE schema::C2C_PEER_ID = ? {} AND schema::CONTENT IS NOT NULL
-                 ORDER BY schema::TIMESTAMP DESC
+                 WHERE {C2C_PEER_ID} = ? {} AND {CONTENT} IS NOT NULL
+                 ORDER BY {TIMESTAMP} DESC
                  LIMIT ? OFFSET ?",
                 ts_where
             );
@@ -537,10 +543,10 @@ pub fn get_messages(
         } else {
             name_pattern = format!("%{}%", chat);
             sql = format!(
-                "SELECT schema::MSG_ID,schema::C2C_SENDER_ID,schema::C2C_SENDER_NAME,schema::CONTENT,schema::TIMESTAMP,schema::IS_SENDER_ME
+                "SELECT {MSG_ID},{C2C_SENDER_ID},{C2C_SENDER_NAME},{CONTENT},{TIMESTAMP},{IS_SENDER_ME}
                  FROM c2c_msg_table
-                 WHERE schema::GROUP_NAME LIKE ? {} AND schema::CONTENT IS NOT NULL
-                 ORDER BY schema::TIMESTAMP DESC
+                 WHERE {GROUP_NAME} LIKE ? {} AND {CONTENT} IS NOT NULL
+                 ORDER BY {TIMESTAMP} DESC
                  LIMIT ? OFFSET ?",
                 ts_where
             );
@@ -586,10 +592,10 @@ pub fn search_messages(
 
     // 私聊
     let sql = format!(
-        "SELECT schema::MSG_ID,schema::C2C_SENDER_ID,schema::C2C_SENDER_NAME,schema::CONTENT,schema::TIMESTAMP,schema::IS_SENDER_ME,schema::C2C_PEER_ID
+        "SELECT {MSG_ID},{C2C_SENDER_ID},{C2C_SENDER_NAME},{CONTENT},{TIMESTAMP},{IS_SENDER_ME},{C2C_PEER_ID}
          FROM c2c_msg_table
-         WHERE schema::CONTENT IS NOT NULL {}
-         ORDER BY schema::TIMESTAMP DESC",
+         WHERE {CONTENT} IS NOT NULL {}
+         ORDER BY {TIMESTAMP} DESC",
         ts_where
     );
 
@@ -633,10 +639,10 @@ pub fn search_messages(
 
     // 群聊
     let sql2 = format!(
-        "SELECT schema::MSG_ID,schema::GROUP_SENDER_ID,schema::C2C_SENDER_NAME,schema::CONTENT,schema::TIMESTAMP,schema::IS_SENDER_ME,schema::GROUP_NAME
+        "SELECT {MSG_ID},{GROUP_SENDER_ID},{C2C_SENDER_NAME},{CONTENT},{TIMESTAMP},{IS_SENDER_ME},{GROUP_NAME}
          FROM dataline_msg_table
-         WHERE schema::CONTENT IS NOT NULL {}
-         ORDER BY schema::TIMESTAMP DESC",
+         WHERE {CONTENT} IS NOT NULL {}
+         ORDER BY {TIMESTAMP} DESC",
         ts_where
     );
 
@@ -691,8 +697,10 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
 
     if kind == "all" || kind == "friend" {
         // schema::C2C_PEER_ID = peer_id (数字 QQ), schema::GROUP_NAME = encrypted UID
-        let sql = "SELECT DISTINCT schema::C2C_PEER_ID, schema::GROUP_NAME FROM c2c_msg_table";
-        let mut stmt = conn.prepare(sql)?;
+        let sql = format!(
+            "SELECT DISTINCT {C2C_PEER_ID}, {GROUP_NAME} FROM c2c_msg_table"
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             // schema::C2C_PEER_ID 是真实 QQ 号
@@ -736,11 +744,13 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
     if kind == "all" || kind == "group" {
         if let Some(q) = query {
             let pattern = format!("%{}%", q);
-            let sql = "SELECT DISTINCT schema::GROUP_NAME
+            let sql = format!(
+                "SELECT DISTINCT {GROUP_NAME}
                  FROM dataline_msg_table
-                 WHERE schema::GROUP_NAME LIKE ?
-                 LIMIT ?";
-            let mut stmt = conn.prepare(sql)?;
+                 WHERE {GROUP_NAME} LIKE ?
+                 LIMIT ?"
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let mut rows = stmt.query(params![pattern, limit as i64])?;
             while let Some(row) = rows.next()? {
                 let name: String = row
@@ -753,8 +763,8 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
                 });
             }
         } else {
-            let sql = "SELECT DISTINCT schema::GROUP_NAME FROM dataline_msg_table LIMIT ?";
-            let mut stmt = conn.prepare(sql)?;
+            let sql = format!("SELECT DISTINCT {GROUP_NAME} FROM dataline_msg_table LIMIT ?");
+            let mut stmt = conn.prepare(&sql)?;
             let mut rows = stmt.query([limit as i64])?;
             while let Some(row) = rows.next()? {
                 let name: String = row
@@ -777,14 +787,16 @@ pub fn get_unread_sessions(limit: usize) -> Result<Vec<Session>> {
     let path = detect_db_path()?;
     let conn = open_conn(&path)?;
 
-    let sql = "SELECT schema::C2C_PEER_ID, schema::GROUP_NAME, MAX(schema::TIMESTAMP)
-               FROM c2c_msg_flow_table
-               WHERE schema::FLOW_UNREAD = 0
-               GROUP BY schema::C2C_PEER_ID, schema::GROUP_NAME
-               ORDER BY MAX(schema::TIMESTAMP) DESC
-               LIMIT ?";
+    let sql = format!(
+        "SELECT {C2C_PEER_ID}, {GROUP_NAME}, MAX({TIMESTAMP})
+         FROM c2c_msg_flow_table
+         WHERE {FLOW_UNREAD} = 0
+         GROUP BY {C2C_PEER_ID}, {GROUP_NAME}
+         ORDER BY MAX({TIMESTAMP}) DESC
+         LIMIT ?"
+    );
 
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0).unwrap_or(0);
         let peer_id_str = peer_id.to_string();
@@ -814,11 +826,13 @@ pub fn get_group_members(group_id: &str) -> Result<Vec<GroupMember>> {
     let conn = open_conn(&path)?;
     let group_name = group_id.strip_prefix("group:").unwrap_or(group_id);
 
-    let sql = "SELECT DISTINCT schema::GROUP_MEMBER_UID, schema::C2C_SENDER_NAME
+    let sql = format!(
+        "SELECT DISTINCT {GROUP_MEMBER_UID}, {C2C_SENDER_NAME}
          FROM dataline_msg_table
-         WHERE schema::GROUP_NAME = ? AND schema::GROUP_MEMBER_UID IS NOT NULL AND schema::GROUP_MEMBER_UID != 0";
+         WHERE {GROUP_NAME} = ? AND {GROUP_MEMBER_UID} IS NOT NULL AND {GROUP_MEMBER_UID} != 0"
+    );
 
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![group_name])?;
     let mut members = Vec::new();
 
@@ -851,13 +865,13 @@ pub fn get_stats(
         let is_numeric = chat.chars().all(|c| c.is_ascii_digit()) && chat.len() > 5;
         if let Some(group_name) = chat.strip_prefix("group:") {
             let count_sql = format!(
-                "SELECT COUNT(*) FROM dataline_msg_table WHERE schema::GROUP_NAME = ? {}",
+                "SELECT COUNT(*) FROM dataline_msg_table WHERE {GROUP_NAME} = ? {}",
                 ts_where
             );
             let range_sql = format!(
-                "SELECT MIN(schema::TIMESTAMP), MAX(schema::TIMESTAMP)
+                "SELECT MIN({TIMESTAMP}), MAX({TIMESTAMP})
                  FROM dataline_msg_table
-                 WHERE schema::GROUP_NAME = ? AND schema::TIMESTAMP > 0 {}",
+                 WHERE {GROUP_NAME} = ? AND {TIMESTAMP} > 0 {}",
                 ts_where
             );
             let group_count = conn
@@ -874,13 +888,13 @@ pub fn get_stats(
                 .parse::<i64>()
                 .with_context(|| format!("会话 ID 不是合法数字: {}", chat))?;
             let count_sql = format!(
-                "SELECT COUNT(*) FROM c2c_msg_table WHERE schema::C2C_PEER_ID = ? {}",
+                "SELECT COUNT(*) FROM c2c_msg_table WHERE {C2C_PEER_ID} = ? {}",
                 ts_where
             );
             let range_sql = format!(
-                "SELECT MIN(schema::TIMESTAMP), MAX(schema::TIMESTAMP)
+                "SELECT MIN({TIMESTAMP}), MAX({TIMESTAMP})
                  FROM c2c_msg_table
-                 WHERE schema::C2C_PEER_ID = ? AND schema::TIMESTAMP > 0 {}",
+                 WHERE {C2C_PEER_ID} = ? AND {TIMESTAMP} > 0 {}",
                 ts_where
             );
             let c2c_count = conn
@@ -895,13 +909,13 @@ pub fn get_stats(
         } else {
             let pattern = format!("%{}%", chat);
             let count_sql = format!(
-                "SELECT COUNT(*) FROM c2c_msg_table WHERE schema::GROUP_NAME LIKE ? {}",
+                "SELECT COUNT(*) FROM c2c_msg_table WHERE {GROUP_NAME} LIKE ? {}",
                 ts_where
             );
             let range_sql = format!(
-                "SELECT MIN(schema::TIMESTAMP), MAX(schema::TIMESTAMP)
+                "SELECT MIN({TIMESTAMP}), MAX({TIMESTAMP})
                  FROM c2c_msg_table
-                 WHERE schema::GROUP_NAME LIKE ? AND schema::TIMESTAMP > 0 {}",
+                 WHERE {GROUP_NAME} LIKE ? AND {TIMESTAMP} > 0 {}",
                 ts_where
             );
             let c2c_count = conn
@@ -917,7 +931,10 @@ pub fn get_stats(
     } else {
         let c2c_count: i64 = conn
             .query_row(
-                &format!("SELECT COUNT(*) FROM c2c_msg_table WHERE 1=1 {}", ts_where),
+                &format!(
+                    "SELECT COUNT(*) FROM c2c_msg_table WHERE 1=1 {}",
+                    ts_where
+                ),
                 [],
                 |r| r.get(0),
             )
@@ -937,9 +954,9 @@ pub fn get_stats(
         let range_sql = format!(
             "SELECT MIN(ts), MAX(ts)
              FROM (
-                 SELECT schema::TIMESTAMP AS ts FROM c2c_msg_table WHERE schema::TIMESTAMP > 0 {}
+                 SELECT {TIMESTAMP} AS ts FROM c2c_msg_table WHERE {TIMESTAMP} > 0 {}
                  UNION ALL
-                 SELECT schema::TIMESTAMP AS ts FROM dataline_msg_table WHERE schema::TIMESTAMP > 0 {}
+                 SELECT {TIMESTAMP} AS ts FROM dataline_msg_table WHERE {TIMESTAMP} > 0 {}
              )",
             ts_where, ts_where
         );
@@ -970,10 +987,10 @@ pub fn get_stats(
 fn build_ts_where(since_ts: Option<i64>, until_ts: Option<i64>) -> String {
     let mut parts = Vec::new();
     if let Some(s) = since_ts {
-        parts.push(format!("AND schema::TIMESTAMP >= {}", s));
+        parts.push(format!("AND {TIMESTAMP} >= {}", s));
     }
     if let Some(u) = until_ts {
-        parts.push(format!("AND schema::TIMESTAMP <= {}", u));
+        parts.push(format!("AND {TIMESTAMP} <= {}", u));
     }
     parts.join(" ")
 }
@@ -1181,9 +1198,9 @@ pub fn debug_tables() -> Result<()> {
 
         // 查找有非空BLOB的记录
         println!("\n=== Find records with non-empty BLOBs ===");
-        let mut stmt = conn.prepare(
-            "SELECT schema::MSG_ID,schema::TIMESTAMP,schema::IS_SENDER_ME,schema::CONTENT,[40900],[40600] FROM c2c_msg_table WHERE schema::CONTENT IS NOT NULL LIMIT 10"
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {MSG_ID},{TIMESTAMP},{IS_SENDER_ME},{CONTENT},[40900],[40600] FROM c2c_msg_table WHERE {CONTENT} IS NOT NULL LIMIT 10"
+        ))?;
         let mut rows = stmt.query([])?;
         let mut count = 0;
         while let Some(row) = rows.next()? {
@@ -1224,9 +1241,9 @@ pub fn debug_tables() -> Result<()> {
 
         // 同时检查 schema::CONTENT 作为 TEXT 的非空内容
         println!("\n=== Check schema::CONTENT as TEXT with non-ASCII content ===");
-        let mut stmt = conn.prepare(
-            "SELECT schema::MSG_ID,schema::TIMESTAMP,schema::C2C_SENDER_NAME,schema::CONTENT FROM c2c_msg_table WHERE schema::CONTENT IS NOT NULL AND length(schema::CONTENT) > 0 LIMIT 5"
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {MSG_ID},{TIMESTAMP},{C2C_SENDER_NAME},{CONTENT} FROM c2c_msg_table WHERE {CONTENT} IS NOT NULL AND length({CONTENT}) > 0 LIMIT 5"
+        ))?;
         let mut rows = stmt.query([])?;
         let mut count = 0;
         while let Some(row) = rows.next()? {
@@ -1332,9 +1349,9 @@ pub fn debug_probe() -> Result<()> {
 
     println!("\n=== Trying to find TEXT content ===");
     // 找包含非 ASCII 字符的记录
-    let mut stmt = conn.prepare(
-        "SELECT schema::MSG_ID,schema::TIMESTAMP,schema::C2C_SENDER_NAME,[40090],[40093],schema::CONTENT FROM c2c_msg_table LIMIT 10"
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MSG_ID},{TIMESTAMP},{C2C_SENDER_NAME},[40090],[40093],{CONTENT} FROM c2c_msg_table LIMIT 10"
+    ))?;
     let mut rows = stmt.query([])?;
     let mut count = 0;
     while let Some(row) = rows.next()? {
