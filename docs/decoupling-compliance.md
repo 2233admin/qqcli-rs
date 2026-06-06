@@ -87,12 +87,21 @@ grep -n "format!(\"%{}%\"" src/db_index.rs  # 0 match 才对
 
 ## 进度追踪 (后续 task 完成时勾)
 
-- [ ] #3-new Forward 嵌套递归 — 修 A
-- [ ] #4-new db ↔ normalize 解耦 — 修 B
-- [ ] #5-new bundle Segment — 修 C
-- [ ] #6-new export content_inline — 修 D
-- [ ] #7-new search segment FTS — 修 E
-- [ ] 全部 5 件绿 → 跑 cargo test 30+ pass + cargo clippy 干净 + 5 个核心命令实跑通 → 可发 v0.2.0
+- [x] C: bundle 走 Segment — **9970f59** 修 (删除 extract_image_urls 19 行 regex, 改走 m.segments, 加 backfill_segment_urls 3 层 url 还原)
+- [ ] A: Forward 嵌套递归 — #16
+- [ ] B: db ↔ normalize 解耦 — #17
+- [ ] D: export 走 content_inline — #19
+- [ ] E: search segment FTS — #20
+
+## QA Deferred (2026-06-07 跑出, 未修)
+
+| Bug | 严重度 | 修法 | 关联 |
+|---|---|---|---|
+| BUG-003 uid 全显示 `uid_xxx` (encrypted uid 没解析) | High | 新加 `uid_resolve.rs` 读 `nt_uid_mapping_table` | #4-new 顺带 |
+| BUG-004 旧 groupCode `881970728` 静默返空 | Medium | uid_resolve 自动转换, 或加提示 | 跟 BUG-003 |
+| BUG-005 search 输出 sender_name 也是 uid_xxx | Medium | 跟 BUG-003 一起修 | — |
+
+QA 报告: `.gstack/qa-reports/qa-report-qqcli-rs-2026-06-07.md`
 
 ## 关联 sub-file
 
