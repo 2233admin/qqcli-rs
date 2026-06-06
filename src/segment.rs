@@ -13,13 +13,17 @@ use serde::{Deserialize, Serialize};
 
 /// One parsed QQ message segment. `tag = "type"` so JSON looks like
 /// `{"type":"text","text":"hi"}` (OneBot 11 style).
+///
+/// 9 个变体对应 9 种消息类型。详细字段语义参考 PY 版
+/// `D:/projects/_tools/qq-data-exporter/src/qq_data_core/normalize.py`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Segment {
-    /// Plain UTF-8 text.
+    /// 纯文本 (OneBot: `text`)
     Text { text: String },
 
-    /// Image. At least one of `url` / `fileid` / `local_path` is usually populated.
+    /// 图片 (OneBot: `image`)
+    /// 至少 `url` / `fileid` / `local_path` 之一会被填上。
     Image {
         url: Option<String>,
         fileid: Option<String>,
@@ -28,7 +32,7 @@ pub enum Segment {
         local_path: Option<String>,
     },
 
-    /// Voice / "ptt" / silk record.
+    /// 语音 / silk 录音 (OneBot: `record` / `voice`)
     Record {
         url: Option<String>,
         fileid: Option<String>,
@@ -36,7 +40,7 @@ pub enum Segment {
         duration: Option<u32>,
     },
 
-    /// Uploaded file (non-image binary).
+    /// 上传的文件 (非图片二进制) (OneBot: `file` / `onlinefile`)
     File {
         name: String,
         url: Option<String>,
@@ -45,17 +49,17 @@ pub enum Segment {
         local_path: Option<String>,
     },
 
-    /// Built-in face (text-style emoji like `[表情xxx]`).
+    /// 内置小黄脸表情 (OneBot: `face`)
     Face { id: String, name: Option<String> },
 
-    /// Market / sticker / animated face (large GIF).
+    /// 商城 / 动态贴图 (OneBot: `mface`)
     Mface {
         id: String,
         url: Option<String>,
         name: Option<String>,
     },
 
-    /// Reply / quote reference to a previous message.
+    /// 回复 / 引用 (OneBot: `reply`)
     Reply {
         sender_id: String,
         sender_name: String,
@@ -63,24 +67,24 @@ pub enum Segment {
         original_content_preview: String,
     },
 
-    /// @mention of a peer.
+    /// @ 提及 (OneBot: `at`, atType=1 时为 @全体成员)
     At {
         target_id: String,
         target_name: Option<String>,
     },
 
-    /// Merged-forwarded chat bundle. The contained `Vec<ForwardNode>`
-    /// is heap-allocated, so the recursion stays at a finite compile-
-    /// time size even when forwards nest inside forwards.
+    /// 合并转发的聊天记录 (OneBot: `forward` / `node`)。
+    /// `messages` 用 `Vec<ForwardNode>` 而非 `Vec<Box<>>`, 编译期大小
+    /// 有限, 递归不会无限增长。`forward` 套 `forward` 的深层展开
+    /// 是 task #3 的工作, 现在只走一层。
     Forward {
         sender_id: Option<String>,
         sender_name: Option<String>,
         messages: Vec<ForwardNode>,
     },
 
-    /// Fallback for elements we failed to classify. `raw_json` keeps a
-    /// compact debug snapshot; `reason` is a short string explaining
-    /// why we fell through.
+    /// 未知 / 解析失败的元素。`raw_json` 保留调试快照 (最多 128 字节),
+    /// `reason` 简短说明为什么 fallback。
     Unknown { raw_json: String, reason: String },
 }
 
