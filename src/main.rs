@@ -10,8 +10,10 @@ mod db;
 mod db_index;
 mod decrypt;
 mod napcat;
+mod normalize;
 mod output;
 mod schema;
+mod segment;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};

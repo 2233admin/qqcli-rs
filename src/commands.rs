@@ -399,18 +399,13 @@ pub fn new_messages(limit: usize, json_flag: bool) -> Result<()> {
         let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
         let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
-        messages.push(Message {
-            id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
+        messages.push(db::build_message(
+            row.get::<_, Option<i64>>(0)?.unwrap_or(0),
             sender_id,
-            sender_name: row
-                .get::<_, Option<String>>(2)?
-                .unwrap_or_else(|| sender_id.to_string()),
-            content: db::extract_text(&content_raw),
-            msg_type: db::detect_type(&content_raw),
-            is_mine: is_mine == 1,
-            timestamp: ts,
-            time_str: db::fmt_ts(ts),
-        });
+            &content_raw,
+            ts,
+            is_mine,
+        ));
     }
 
     messages.sort_by_key(|m| m.timestamp);

@@ -3,6 +3,8 @@
 //! 表结构见 `schema` 模块
 
 use crate::cache;
+use crate::normalize::normalize_blob_to_segments;
+use crate::segment::Segment;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone};
 use rusqlite::{Connection, params};
@@ -164,6 +166,46 @@ pub struct Message {
     pub is_mine: bool,
     pub timestamp: i64,
     pub time_str: String,
+    /// 解析后的段列表（Segment 解包架构）。当 BLOB 解析失败或
+    /// 输入为空时为空 Vec；content 字段会同步成 `content_inline` 视图。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub segments: Vec<Segment>,
+}
+
+/// Build a `Message` from a raw BLOB by running the new normalize
+/// pipeline first and falling back to the legacy text extractor when
+/// the pipeline produces no inline content. Keeps `content` and
+/// `msg_type` in sync with the structured `segments` view.
+pub(crate) fn build_message(
+    id: i64,
+    sender_id: i64,
+    raw_content: &[u8],
+    ts: i64,
+    is_mine_flag: i64,
+) -> Message {
+    let mws = normalize_blob_to_segments(raw_content);
+    let inline = if mws.content_inline.is_empty() {
+        extract_text(raw_content)
+    } else {
+        mws.content_inline
+    };
+    let primary = if mws.primary_type == "未知" {
+        detect_type(raw_content)
+    } else {
+        mws.primary_type
+    };
+    let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+    Message {
+        id,
+        sender_id,
+        sender_name,
+        content: inline,
+        msg_type: primary,
+        is_mine: is_mine_flag == 1,
+        timestamp: ts,
+        time_str: fmt_ts(ts),
+        segments: mws.segments,
+    }
 }
 
 impl Message {
@@ -466,18 +508,10 @@ pub fn get_messages(
             let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
             let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
-            let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+            let _sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+            let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
-            messages.push(Message {
-                id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
-                sender_id,
-                sender_name,
-                content: extract_text(&content_raw),
-                msg_type: detect_type(&content_raw),
-                is_mine: is_mine == 1,
-                timestamp: ts,
-                time_str: fmt_ts(ts),
-            });
+            messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
         }
     } else {
         // 私聊 (c2c)
@@ -526,18 +560,10 @@ pub fn get_messages(
             let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
             let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
-            let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+            let _sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+            let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
-            messages.push(Message {
-                id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
-                sender_id,
-                sender_name,
-                content: extract_text(&content_raw),
-                msg_type: detect_type(&content_raw),
-                is_mine: is_mine == 1,
-                timestamp: ts,
-                time_str: fmt_ts(ts),
-            });
+            messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
         }
     }
 
@@ -595,18 +621,8 @@ pub fn search_messages(
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
-                let sender_name =
-                    cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
-                messages.push(Message {
-                    id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
-                    sender_id,
-                    sender_name,
-                    content,
-                    msg_type: detect_type(&content_raw),
-                    is_mine: is_mine == 1,
-                    timestamp: ts,
-                    time_str: fmt_ts(ts),
-                });
+                let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
+                messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
             }
 
             if messages.len() >= limit * 2 {
@@ -646,18 +662,8 @@ pub fn search_messages(
                 let sender_id: i64 = row.get::<_, Option<i64>>(1)?.unwrap_or(0);
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
-                let sender_name =
-                    cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
-                messages.push(Message {
-                    id: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
-                    sender_id,
-                    sender_name,
-                    content,
-                    msg_type: detect_type(&content_raw),
-                    is_mine: is_mine == 1,
-                    timestamp: ts,
-                    time_str: fmt_ts(ts),
-                });
+                let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
+                messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
             }
 
             if messages.len() >= limit * 2 {
