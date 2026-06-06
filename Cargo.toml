@@ -35,6 +35,7 @@ toml = "0.8"
 zip = "2.1"
 md5 = "0.8"
 reqwest = { version = "0.12", features = ["blocking"] }
+miniz_oxide = "0.8"
 
 [profile.release]
 opt-level = 3

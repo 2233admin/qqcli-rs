@@ -209,7 +209,7 @@ pub fn export(
             }
             s
         }
-        _ => {
+        "markdown" | "md" => {
             // markdown
             let mut md = format!("# QQ 聊天记录: {}\n\n", chat);
             let mut current_date = String::new();
@@ -223,6 +223,12 @@ pub fn export(
                 md.push_str(&format!("**{}** [{}]: {}\n", m.time_str, sender, m.content));
             }
             md
+        }
+        other => {
+            anyhow::bail!(
+                "未知导出格式: '{}'\n支持: markdown | md | txt | json | jsonl | yaml",
+                other
+            );
         }
     };
 
@@ -245,6 +251,7 @@ pub fn bundle_media(
     limit: usize,
     output: &str,
 ) -> Result<()> {
+    use crate::segment::Segment;
     use md5;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
@@ -254,21 +261,50 @@ pub fn bundle_media(
 
     let messages = db::get_messages(chat, limit, 0, since_ts, until_ts, None)?;
 
-    // 提取所有图片 URL
-    let mut image_urls: Vec<(String, String)> = Vec::new(); // (url, filename)
+    // 走 Segment 列表 (解耦: 不再 regex 字符串) — 收 Image/Record/File/Mface 段
+    let mut media_items: Vec<(String, String, String)> = Vec::new(); // (download_url, display_name, source_label)
     for m in &messages {
-        for url in extract_image_urls(&m.content) {
-            let filename = url.rsplit('/').next().unwrap_or("image.jpg").to_string();
-            image_urls.push((url, filename));
+        for seg in &m.segments {
+            match seg {
+                Segment::Image { url, fileid, local_path, .. } => {
+                    if let Some(u) = url {
+                        let name = fileid.clone().unwrap_or_else(|| "image".to_string());
+                        media_items.push((u.clone(), name, "image".to_string()));
+                    } else if let Some(p) = local_path {
+                        media_items.push((p.clone(), fileid.clone().unwrap_or_else(|| "image".to_string()), "image-local".to_string()));
+                    }
+                }
+                Segment::Record { url, fileid, .. } => {
+                    if let Some(u) = url {
+                        let name = fileid.clone().unwrap_or_else(|| "record".to_string());
+                        media_items.push((u.clone(), name, "record".to_string()));
+                    }
+                }
+                Segment::File { url, name, fileid, local_path, .. } => {
+                    if let Some(u) = url {
+                        media_items.push((u.clone(), name.clone(), "file".to_string()));
+                    } else if let Some(p) = local_path {
+                        media_items.push((p.clone(), name.clone(), "file-local".to_string()));
+                    } else if let Some(fid) = fileid {
+                        media_items.push((fid.clone(), name.clone(), "file-id".to_string()));
+                    }
+                }
+                Segment::Mface { url, id, .. } => {
+                    if let Some(u) = url {
+                        media_items.push((u.clone(), id.clone(), "mface".to_string()));
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
-    if image_urls.is_empty() {
-        println!("未找到图片链接");
+    if media_items.is_empty() {
+        println!("未找到可打包的媒体 (Image/Record/File/Mface 段为空)");
         return Ok(());
     }
 
-    println!("找到 {} 张图片，开始下载...", image_urls.len());
+    println!("找到 {} 个媒体, 开始下载/打包...", media_items.len());
 
     // 创建 zip 文件
     let file = std::fs::File::create(output)?;
@@ -281,16 +317,36 @@ pub fn bundle_media(
 
     let mut downloaded = 0;
     let mut failed = 0;
+    let mut local_copied = 0;
 
-    let total = image_urls.len();
-    for (i, (url, filename)) in image_urls.iter().enumerate() {
-        match client.get(url).send() {
+    let total = media_items.len();
+    for (i, (source, name, kind)) in media_items.iter().enumerate() {
+        // local_path 类直接读文件, 不走 HTTP
+        if kind.ends_with("-local") {
+            match std::fs::read(source) {
+                Ok(bytes) => {
+                    let md5_hash = format!("{:x}", md5::compute(&bytes));
+                    let ext = std::path::Path::new(name).extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("bin");
+                    let unique_name = format!("{}_{}_{}.{}", kind, &md5_hash[..8], i, ext);
+                    zip.start_file(&unique_name, options)?;
+                    zip.write_all(&bytes)?;
+                    local_copied += 1;
+                }
+                Err(_) => failed += 1,
+            }
+            continue;
+        }
+
+        match client.get(source).send() {
             Ok(response) => {
                 if let Ok(bytes) = response.bytes() {
                     let md5_hash = format!("{:x}", md5::compute(&bytes));
-                    let ext = filename.rsplit('.').next().unwrap_or("jpg");
-                    let unique_name = format!("{}_{}.{}", &md5_hash[..8], i, ext);
-
+                    let ext = std::path::Path::new(name).extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("bin");
+                    let unique_name = format!("{}_{}_{}.{}", kind, &md5_hash[..8], i, ext);
                     zip.start_file(&unique_name, options)?;
                     zip.write_all(&bytes)?;
                     downloaded += 1;
@@ -309,34 +365,12 @@ pub fn bundle_media(
     }
 
     zip.finish()?;
-    println!("完成！下载 {} 张图片，失败 {} 张", downloaded, failed);
+    println!(
+        "完成! 下载 {} 个, 拷贝本地 {} 个, 失败 {} 个",
+        downloaded, local_copied, failed
+    );
     println!("已保存到: {}", output);
     Ok(())
-}
-
-/// 从消息内容中提取图片 URL
-fn extract_image_urls(content: &str) -> Vec<String> {
-    let mut urls = Vec::new();
-    for line in content.lines() {
-        // 匹配 QQ 图片 CDN URL
-        if line.contains("multimedia.nt.qq.com.cn") && line.contains("fileid=") {
-            if let Some(start) = line.find("fileid=") {
-                if let Some(rest) = line.get(start..) {
-                    let params = &rest[7..rest.len().min(200)];
-                    if let Some(end) = params.find(|c: char| {
-                        !c.is_alphanumeric() && c != '=' && c != '_' && c != '-' && c != '~'
-                    }) {
-                        let fileid = &params[..end.min(100)];
-                        let full_url = format!("https://multimedia.nt.qq.com.cn{}", params);
-                        if !urls.iter().any(|u: &String| u.contains(fileid)) {
-                            urls.push(full_url);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    urls
 }
 
 pub fn unread(limit: usize, json_flag: bool) -> Result<()> {
