@@ -392,10 +392,30 @@ pub fn unread(limit: usize, json_flag: bool) -> Result<()> {
 
 pub fn members(chat: &str, json_flag: bool) -> Result<()> {
     let members = db::get_group_members(chat)?;
+    if !members.is_empty() {
+        if json_flag {
+            println!("{}", serde_json::to_string_pretty(&members)?);
+        } else {
+            YamlWriter::write_members(&members, chat)?;
+        }
+        return Ok(());
+    }
+
+    // 0 成员: 给清晰提示, 不要静默
     if json_flag {
-        println!("{}", serde_json::to_string_pretty(&members)?);
+        println!("[]");
     } else {
-        YamlWriter::write_members(&members, chat)?;
+        println!("(无成员数据)");
+        if chat.chars().all(|c| c.is_ascii_digit()) {
+            eprintln!(
+                "\n提示: '{}' 看起来是旧 groupCode (纯数字), NT 升级后群 ID 变成 'group:u_xxx' 形式。\n       用 `qq sessions` 查当前群里, 用 'group:u_xxx' 形式的 ID 重试。",
+                chat
+            );
+        } else {
+            eprintln!(
+                "\n提示: 此群在 NT 升级后可能没有成员数据。用 `qq sessions` 确认群 ID 形式 (应是 'group:u_xxx')。"
+            );
+        }
     }
     Ok(())
 }

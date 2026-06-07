@@ -14,6 +14,7 @@ mod normalize;
 mod output;
 mod schema;
 mod segment;
+mod uid_resolve;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};

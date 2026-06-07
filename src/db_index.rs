@@ -79,7 +79,9 @@ pub fn import_all(sqlite_path: &Path, _cache: &ContactCache) -> Result<usize> {
             let content_raw: Vec<u8> = db::get_either_blob_or_text(row, 3);
 
             let content = db::extract_text(&content_raw);
-            let sender_name = cache::resolve_or_fallback(peer_id, format!("uid_{}", peer_id));
+            let sender_name = crate::uid_resolve::name_for_qq(peer_id)
+                .or_else(|| crate::uid_resolve::name_for_uid(&format!("uid_{}", peer_id)))
+                .unwrap_or_else(|| format!("uid_{}", peer_id));
             let time_str = db::fmt_ts(timestamp);
 
             insert.execute(params![

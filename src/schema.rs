@@ -61,5 +61,9 @@ pub const FLOW_UNREAD: &str = "[40026]";
 
 /// 加密 UID
 pub const UID_MAPPING_ENC: &str = "[48902]";
+/// UID 映射条目 ID (auto-increment primary key)
+pub const UID_MAPPING_ID: &str = "[48901]";
+/// 真实姓名 / 昵称
+pub const UID_MAPPING_NAME: &str = "[48912]";
 /// 真实 QQ 号
 pub const UID_MAPPING_QQ: &str = "[1002]";

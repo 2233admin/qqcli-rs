@@ -201,7 +201,9 @@ pub(crate) fn build_message(
     } else {
         mws.primary_type
     };
-    let sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
+    let sender_name = crate::uid_resolve::name_for_qq(sender_id)
+        .or_else(|| crate::uid_resolve::name_for_uid(&format!("uid_{}", sender_id)))
+        .unwrap_or_else(|| format!("uid_{}", sender_id));
 
     // Backfill missing Image/Record/File URLs by scanning the raw BLOB
     // for the CDN URL pattern. The new normalize pipeline can't always
@@ -589,7 +591,8 @@ pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0)?;
         let peer_id_str = peer_id.to_string();
-        let name = cache::resolve_nickname(peer_id).unwrap_or_else(|| format!("uid_{}", peer_id));
+        let name = crate::uid_resolve::name_for_qq(peer_id)
+            .unwrap_or_else(|| format!("uid_{}", peer_id));
         Ok(Session {
             id: peer_id_str,
             name,
@@ -687,7 +690,6 @@ pub fn get_messages(
             let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
             let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
-            let _sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
             let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
             messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
@@ -739,7 +741,6 @@ pub fn get_messages(
             let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
             let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
-            let _sender_name = cache::resolve_or_fallback(sender_id, format!("uid_{}", sender_id));
             let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
             messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
@@ -888,12 +889,10 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
                 continue;
             }
 
-            // 尝试用缓存解析昵称
-            let name = if cache.is_some() {
-                cache::resolve_or_fallback(peer_id, encrypted_uid.clone())
-            } else {
-                encrypted_uid
-            };
+            // 尝试用 uid_resolve 解析昵称
+            let name = crate::uid_resolve::name_for_qq(peer_id)
+                .or_else(|| crate::uid_resolve::name_for_uid(&encrypted_uid))
+                .unwrap_or(encrypted_uid);
 
             // 过滤查询
             if let Some(q) = query {
@@ -973,7 +972,8 @@ pub fn get_unread_sessions(limit: usize) -> Result<Vec<Session>> {
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0).unwrap_or(0);
         let peer_id_str = peer_id.to_string();
-        let name = cache::resolve_nickname(peer_id).unwrap_or_else(|| format!("uid_{}", peer_id));
+        let name = crate::uid_resolve::name_for_qq(peer_id)
+            .unwrap_or_else(|| format!("uid_{}", peer_id));
         Ok(Session {
             id: peer_id_str,
             name,

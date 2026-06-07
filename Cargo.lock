@@ -1849,6 +1849,7 @@ dependencies = [
  "encoding_rs",
  "futures-util",
  "md5",
+ "miniz_oxide",
  "regex-lite",
  "reqwest",
  "rusqlite",
