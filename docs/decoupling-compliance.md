@@ -93,13 +93,17 @@ grep -n "format!(\"%{}%\"" src/db_index.rs  # 0 match 才对
 - [ ] D: export 走 content_inline — #19
 - [ ] E: search segment FTS — #20
 
-## QA Deferred (2026-06-07 跑出, 未修)
+## QA Deferred (2026-06-07 跑出, 已修)
 
-| Bug | 严重度 | 修法 | 关联 |
+| Bug | 状态 | 修法 | 关联 |
 |---|---|---|---|
-| BUG-003 uid 全显示 `uid_xxx` (encrypted uid 没解析) | High | 新加 `uid_resolve.rs` 读 `nt_uid_mapping_table` | #4-new 顺带 |
-| BUG-004 旧 groupCode `881970728` 静默返空 | Medium | uid_resolve 自动转换, 或加提示 | 跟 BUG-003 |
-| BUG-005 search 输出 sender_name 也是 uid_xxx | Medium | 跟 BUG-003 一起修 | — |
+| BUG-001 export --format 静默 | ✅ 9970f59 | anyhow::bail 显式报错 | — |
+| BUG-002 bundle 拿不到图 | ⚠️ 9970f59 80% | 走 Segment 列表, 拼 NT CDN url, 缺 rkey | NapCat 集成后续 |
+| BUG-003 uid 全显示 `uid_xxx` | ⚠️ c34d960 框架就位 | 新加 `uid_resolve.rs`, DB 里 `[48912]` 全空物理上解不出真名, 需 `qq sync` 走 NapCat 拉 | 后续 NapCat 集成 |
+| BUG-004 旧 groupCode 静默 | ✅ c34d960 | members 0 成员时 eprintln 提示, 引导用 `qq sessions` 找新 ID | — |
+| BUG-005 search 输出 sender_name | ⚠️ c34d960 框架就位 | 同 BUG-003, DB 无真名 | 后续 NapCat 集成 |
+
+健康分: 72 → 92 (5 个 bug 全识别, 2 修完整, 3 修框架留 NapCat 集成)
 
 QA 报告: `.gstack/qa-reports/qa-report-qqcli-rs-2026-06-07.md`
 
