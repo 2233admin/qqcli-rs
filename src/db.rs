@@ -2,7 +2,6 @@
 //!
 //! 表结构见 `schema` 模块
 
-use crate::cache;
 use crate::normalize::normalize_blob_to_segments;
 use crate::segment::Segment;
 use anyhow::{Context, Result};
@@ -189,7 +188,6 @@ pub(crate) fn build_message(
     ts: i64,
     is_mine_flag: i64,
 ) -> Message {
-    use crate::segment::Segment;
     let mws = normalize_blob_to_segments(raw_content);
     let inline = if mws.content_inline.is_empty() {
         extract_text(raw_content)
@@ -866,8 +864,8 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
     // 确保 UID 映射已加载
     let _ = load_uid_mapping(&path);
 
-    // 加载联系人缓存用于昵称解析
-    let cache = crate::cache::load_cache();
+    // 加载联系人缓存用于昵称解析 (currently preloaded for side effects)
+    let _ = crate::cache::load_cache();
 
     if kind == "all" || kind == "friend" {
         // schema::C2C_PEER_ID = peer_id (数字 QQ), schema::GROUP_NAME = encrypted UID

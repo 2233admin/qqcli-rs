@@ -135,6 +135,7 @@ pub fn save_cache(friends: &[FriendInfo], groups: &[GroupInfo]) -> Result<()> {
 }
 
 /// 根据 user_id 解析昵称 (优先 remark，否则 nickname)
+#[allow(dead_code)]
 pub fn resolve_nickname(user_id: i64) -> Option<String> {
     let cache = load_cache()?;
     cache
@@ -158,6 +159,7 @@ pub fn resolve_group_name(group_id: i64) -> Option<String> {
 /// 解析 sender_id，fallback 规则：
 /// - 昵称缓存命中 → 使用昵称
 /// - 未命中 → 返回传入的 fallback 字符串
+#[allow(dead_code)]
 pub fn resolve_or_fallback(sender_id: i64, fallback: String) -> String {
     resolve_nickname(sender_id).unwrap_or(fallback)
 }

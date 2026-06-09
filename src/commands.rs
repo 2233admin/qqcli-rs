@@ -274,11 +274,9 @@ pub fn bundle_media(
                         media_items.push((p.clone(), fileid.clone().unwrap_or_else(|| "image".to_string()), "image-local".to_string()));
                     }
                 }
-                Segment::Record { url, fileid, .. } => {
-                    if let Some(u) = url {
-                        let name = fileid.clone().unwrap_or_else(|| "record".to_string());
-                        media_items.push((u.clone(), name, "record".to_string()));
-                    }
+                Segment::Record { url: Some(u), fileid, .. } => {
+                    let name = fileid.clone().unwrap_or_else(|| "record".to_string());
+                    media_items.push((u.clone(), name, "record".to_string()));
                 }
                 Segment::File { url, name, fileid, local_path, .. } => {
                     if let Some(u) = url {
@@ -289,10 +287,8 @@ pub fn bundle_media(
                         media_items.push((fid.clone(), name.clone(), "file-id".to_string()));
                     }
                 }
-                Segment::Mface { url, id, .. } => {
-                    if let Some(u) = url {
-                        media_items.push((u.clone(), id.clone(), "mface".to_string()));
-                    }
+                Segment::Mface { url: Some(u), id, .. } => {
+                    media_items.push((u.clone(), id.clone(), "mface".to_string()));
                 }
                 _ => {}
             }

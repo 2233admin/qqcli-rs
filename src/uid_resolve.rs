@@ -112,6 +112,7 @@ pub fn name_for_qq(qq: i64) -> Option<String> {
 }
 
 /// 把 `u_xxx` 解成数字 QQ 号 (i64), 没找到返 None。
+#[allow(dead_code)]
 pub fn qq_for_uid(uid: &str) -> Option<i64> {
     ensure_loaded().ok()?;
     let guard = cell().lock().ok()?;
@@ -120,6 +121,7 @@ pub fn qq_for_uid(uid: &str) -> Option<i64> {
 }
 
 /// 把数字 QQ 号解成 `u_xxx`, 没找到返 None。
+#[allow(dead_code)]
 pub fn uid_for_qq(qq: i64) -> Option<String> {
     ensure_loaded().ok()?;
     let guard = cell().lock().ok()?;
@@ -128,6 +130,7 @@ pub fn uid_for_qq(qq: i64) -> Option<String> {
 }
 
 /// 一站式: 给一个可能是 u_xxx 也可能是数字 QQ 的字符串, 尽力解出真实姓名。
+#[allow(dead_code)]
 pub fn resolve_name(raw: &str) -> Option<String> {
     if let Some(name) = name_for_uid(raw) {
         return Some(name);
@@ -142,6 +145,7 @@ pub fn resolve_name(raw: &str) -> Option<String> {
 
 /// 测试钩子: 重置内存缓存, 让下次调用重读 DB。给 unit test 用。
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn reset_for_test() {
     let _ = cell().lock().map(|mut g| *g = None);
 }
@@ -154,7 +158,7 @@ mod tests {
     fn empty_inputs_yield_none() {
         // 不调 ensure_loaded, 所以不会碰 DB
         let m = UidMap::empty();
-        assert!(m.by_uid.get("u_nope").is_none());
+        assert!(!m.by_uid.contains_key("u_nope"));
     }
 
     #[test]

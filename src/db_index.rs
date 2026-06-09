@@ -1,6 +1,6 @@
 //! DuckDB FTS 索引 — 将 QQ 消息批量导入 DuckDB，支持全文搜索
 
-use crate::cache::{self, ContactCache};
+use crate::cache::ContactCache;
 use crate::db;
 use anyhow::{Context, Result};
 use duckdb::{Connection, params};
