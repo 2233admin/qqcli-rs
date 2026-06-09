@@ -2,16 +2,20 @@
 
 > Generated 2026-06-07. Source of truth for the 5 件事 解耦 refactor.
 > 后续 task 完成后, 把这一节里的 ❌ 改成 ✅, commit 里 reference 本文件.
+>
+> **2026-06-10 update**: 5 件事全部 ✅, 进入 v0.2.0. 各 task 完成 commit:
+> A = `bc5519e` · B = `a86d5b8` · C = `9970f59` (pre-v0.2.0) ·
+> D = `f20714d` · E = `6767029`.
 
 ## 5 件事解耦目标
 
 | ID | 一句话 | 验收 (绿 = 通过) |
 |---|---|---|
-| **A** | Forward 嵌套递归 (depth 5), 不暴露 `Unknown{reason: "nested forward"}` 给上层 | ❌ → #3-new |
-| **B** | db.rs 跟 normalize.rs 解耦, db.rs 不依赖 normalize 模块 | ❌ → #4-new |
-| **C** | bundle 走 Segment 列表, 不 regex 字符串 | ❌ → #5-new |
-| **D** | export 走 `content_inline` (从 segments 派生), 不直接读 `m.content` | ❌ → #6-new |
-| **E** | search segment 级索引 + DuckDB 真 FTS | ❌ → #7-new |
+| **A** | Forward 嵌套递归 (depth 5), 不暴露 `Unknown{reason: "nested forward"}` 给上层 | ✅ (`bc5519e`) |
+| **B** | db.rs 跟 normalize.rs 解耦, db.rs 不依赖 normalize 模块 | ✅ (`a86d5b8`) |
+| **C** | bundle 走 Segment 列表, 不 regex 字符串 | ✅ (`9970f59`, pre-v0.2.0) |
+| **D** | export 走 `content_inline` (从 segments 派生), 不直接读 `m.content` | ✅ (`f20714d`) |
+| **E** | search segment 级索引 + DuckDB 真 FTS | ✅ (`6767029`, framework in place; FTS extension is opt-in via `INSTALL fts; LOAD fts;`) |
 
 ## 当前泄露点 (37 处, 5 类)
 
