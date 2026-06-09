@@ -2,7 +2,6 @@
 //!
 //! 表结构见 `schema` 模块
 
-use crate::normalize::normalize_blob_to_segments;
 use crate::segment::Segment;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone};
@@ -176,217 +175,6 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub segments: Vec<Segment>,
 }
-
-/// Build a `Message` from a raw BLOB by running the new normalize
-/// pipeline first and falling back to the legacy text extractor when
-/// the pipeline produces no inline content. Keeps `content` and
-/// `msg_type` in sync with the structured `segments` view.
-pub(crate) fn build_message(
-    id: i64,
-    sender_id: i64,
-    raw_content: &[u8],
-    ts: i64,
-    is_mine_flag: i64,
-) -> Message {
-    let mws = normalize_blob_to_segments(raw_content);
-    let inline = if mws.content_inline.is_empty() {
-        extract_text(raw_content)
-    } else {
-        mws.content_inline
-    };
-    let primary = if mws.primary_type == "未知" {
-        detect_type(raw_content)
-    } else {
-        mws.primary_type
-    };
-    let sender_name = crate::uid_resolve::name_for_qq(sender_id)
-        .or_else(|| crate::uid_resolve::name_for_uid(&format!("uid_{}", sender_id)))
-        .unwrap_or_else(|| format!("uid_{}", sender_id));
-
-    // Backfill missing Image/Record/File URLs by scanning the raw BLOB
-    // for the CDN URL pattern. The new normalize pipeline can't always
-    // reach inside zlib-compressed NT message bodies, so this is a
-    // pragmatic reconciliation that keeps the bundle command working
-    // on real-world DBs.
-    let segments = backfill_segment_urls(mws.segments, raw_content);
-
-    Message {
-        id,
-        sender_id,
-        sender_name,
-        content: inline,
-        msg_type: primary,
-        is_mine: is_mine_flag == 1,
-        timestamp: ts,
-        time_str: fmt_ts(ts),
-        segments,
-    }
-}
-
-/// Scan the raw BLOB for `https://...` and patch any media segments
-/// whose `url` is `None` with the first match. Skips segments that
-/// already have a URL (decompression succeeded).
-///
-/// QQ NT message bodies are protobuf-encoded in the DB, with image
-/// hosts scattered as separate `string` fields (field 25 etc.) rather
-/// than one combined URL. We try three layered recoveries, in order:
-///
-/// 1. Plain ASCII URL in the raw bytes (onebot / napcat style).
-/// 2. Zlib-inflated body containing a URL.
-/// 3. Synthesise a URL from the fileid and the known NT CDN host,
-///    since the protobuf field is reliably `multimedia.nt.qq.com.cn`.
-fn backfill_segment_urls(
-    mut segments: Vec<Segment>,
-    raw_content: &[u8],
-) -> Vec<Segment> {
-    if let Some(candidate) = find_url_in_blob(raw_content) {
-        patch_segments(&mut segments, &candidate);
-        return segments;
-    }
-    if let Some(candidate) = find_url_after_inflate(raw_content) {
-        patch_segments(&mut segments, &candidate);
-        return segments;
-    }
-    // Last-ditch: synthesise NT CDN URL from fileid. The domain is
-    // hard-coded because the protobuf schema does not embed the
-    // scheme; it stores the host and path as separate fields that we
-    // don't yet decode. This covers the dominant real-world case
-    // (NTQQ images served from multimedia.nt.qq.com.cn).
-    for seg in segments.iter_mut() {
-        let fileid: Option<String> = match seg {
-            Segment::Image { fileid, .. } | Segment::Record { fileid, .. } | Segment::File { fileid, .. } => fileid.clone(),
-            _ => None,
-        };
-        if let Some(fid) = fileid {
-            let synthesised = format!(
-                "https://multimedia.nt.qq.com.cn/download?appid=1406&fileid={}",
-                fid
-            );
-            match seg {
-                Segment::Image { url, .. } if url.is_none() => *url = Some(synthesised),
-                Segment::Record { url, .. } if url.is_none() => *url = Some(synthesised),
-                Segment::File { url, .. } if url.is_none() => *url = Some(synthesised),
-                _ => {}
-            }
-        }
-    }
-    segments
-}
-
-fn patch_segments(segments: &mut [Segment], url: &str) {
-    for seg in segments.iter_mut() {
-        if let Some(slot) = match seg {
-            Segment::Image { url, .. } if url.is_none() => Some(url),
-            Segment::Record { url, .. } if url.is_none() => Some(url),
-            Segment::File { url, .. } if url.is_none() => Some(url),
-            Segment::Mface { url, .. } if url.is_none() => Some(url),
-            _ => None,
-        } {
-            *slot = Some(url.to_string());
-        }
-    }
-}
-
-/// Try zlib-inflating the blob and scan the inflated buffer for a URL.
-fn find_url_after_inflate(raw: &[u8]) -> Option<String> {
-    use miniz_oxide::inflate::decompress_to_vec_zlib;
-    let output = decompress_to_vec_zlib(raw).ok()?;
-    find_url_in_blob(&output)
-}
-
-/// Find the first `http(s)://...` substring in raw bytes, terminating
-/// at whitespace, NUL, or `<>"'`. Robust to non-UTF-8 surrounding bytes.
-fn find_url_in_blob(raw: &[u8]) -> Option<String> {
-    let mut i = 0;
-    while i + 7 < raw.len() {
-        if &raw[i..i + 4] == b"http"
-            && (raw[i + 4] == b':' || raw[i + 4] == b's' || raw[i + 4] == b'S')
-            && raw[i + 5] == b':'
-            && raw[i + 6] == b'/'
-            && raw[i + 7] == b'/'
-        {
-            // For "http://" -> proto_end points to the '/' before host.
-            // For "https://" -> proto_end points to the '/' before host.
-            // Either way, host starts at i+7 (the '//' begin).
-            let host_start = i + 7;
-            let mut j = host_start;
-            while j < raw.len() {
-                let c = raw[j];
-                if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' || c == 0
-                    || c == b'"' || c == b'\'' || c == b'<' || c == b'>'
-                {
-                    break;
-                }
-                j += 1;
-            }
-            if j > host_start + 3 {
-                return std::str::from_utf8(&raw[i..j]).ok().map(str::to_string);
-            }
-        }
-        i += 1;
-    }
-    None
-}
-
-#[cfg(test)]
-mod backfill_tests {
-    use super::*;
-    use crate::segment::Segment;
-
-    #[test]
-    fn backfill_image_url_from_blob() {
-        let raw = b"junk\xff\xfe prefix https://multimedia.nt.qq.com.cn/download?fileid=abc more";
-        let segs = vec![Segment::Image {
-            url: None,
-            fileid: Some("abc".into()),
-            md5: None,
-            size: None,
-            local_path: None,
-        }];
-        let out = backfill_segment_urls(segs, raw);
-        if let Segment::Image { url, .. } = &out[0] {
-            assert_eq!(
-                url.as_deref(),
-                Some("https://multimedia.nt.qq.com.cn/download?fileid=abc")
-            );
-        } else {
-            panic!("not image");
-        }
-    }
-
-    #[test]
-    fn backfill_preserves_existing_url() {
-        let raw = b"https://other.example/x";
-        let segs = vec![Segment::Image {
-            url: Some("https://kept.example/y".into()),
-            fileid: None,
-            md5: None,
-            size: None,
-            local_path: None,
-        }];
-        let out = backfill_segment_urls(segs, raw);
-        if let Segment::Image { url, .. } = &out[0] {
-            assert_eq!(url.as_deref(), Some("https://kept.example/y"));
-        }
-    }
-
-    #[test]
-    fn backfill_no_url_in_blob() {
-        let raw = b"plain text without url";
-        let segs = vec![Segment::Image {
-            url: None,
-            fileid: None,
-            md5: None,
-            size: None,
-            local_path: None,
-        }];
-        let out = backfill_segment_urls(segs, raw);
-        if let Segment::Image { url, .. } = &out[0] {
-            assert!(url.is_none());
-        }
-    }
-}
-
 impl Message {
     /// 转换为与 qq-data-exporter 兼容的 NormalizedMessage
     pub fn to_normalized(&self, chat_id: &str) -> NormalizedMessage {
@@ -690,7 +478,7 @@ pub fn get_messages(
 
             let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
-            messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
+            messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
         }
     } else {
         // 私聊 (c2c)
@@ -741,7 +529,7 @@ pub fn get_messages(
 
             let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
-            messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
+            messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
         }
     }
 
@@ -800,7 +588,7 @@ pub fn search_messages(
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
                 let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
-                messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
+                messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
             }
 
             if messages.len() >= limit * 2 {
@@ -841,7 +629,7 @@ pub fn search_messages(
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
                 let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
-                messages.push(build_message(id, sender_id, &content_raw, ts, is_mine));
+                messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
             }
 
             if messages.len() >= limit * 2 {

@@ -9,6 +9,7 @@ mod config;
 mod db;
 mod db_index;
 mod decrypt;
+mod message;
 mod napcat;
 mod normalize;
 mod output;
