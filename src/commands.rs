@@ -443,7 +443,7 @@ pub fn new_messages(limit: usize, json_flag: bool) -> Result<()> {
         let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
         let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
 
-        messages.push(db::build_message(
+        messages.push(crate::message::build_message(
             row.get::<_, Option<i64>>(0)?.unwrap_or(0),
             sender_id,
             &content_raw,
