@@ -41,6 +41,16 @@ pub fn init_db(path: &PathBuf) -> Result<()> {
         "#,
     )
     .context("创建 DuckDB 表失败")?;
+    // 5 件事 E: build a BM25 FTS index on messages.content, idempotent.
+    // DuckDB's create_fts_index is idempotent — re-running with the same
+    // (table, id, *fields) tuple is a no-op. We swallow errors so legacy
+    // databases without an FTS index still initialise; search() will then
+    // fall back to the LIKE path until the user re-runs `qq index`.
+    let _ = conn.execute_batch(
+        r#"PRAGMA create_fts_index(
+            'messages', 'id', 'content', overwrite=false
+        );"#,
+    );
     Ok(())
 }
 
@@ -176,7 +186,19 @@ pub fn import_all(sqlite_path: &Path, _cache: &ContactCache) -> Result<usize> {
     Ok(count)
 }
 
-/// DuckDB 全文搜索
+/// DuckDB 全文搜索 — 5 件事 E
+///
+/// Tries the FTS path first (BM25 score over messages.content) and
+/// falls back to LIKE substring matching if the FTS index is missing
+/// (legacy DBs that pre-date the create_fts_index migration) or the
+/// FTS query errors out. The fallback keeps the search command
+/// working in both states; the FTS path is the fast / scalable one.
+///
+/// Note: the FTS path requires DuckDB's `fts` community extension
+/// to be installed (`INSTALL fts; LOAD fts;`). On a fresh install
+/// the FTS path errors out and the LIKE fallback runs — which is
+/// fine, just slower on large datasets. See
+/// `docs/decoupling-compliance.md` section E.
 pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<SearchResult>> {
     let path = get_path()?;
     if !path.exists() {
@@ -185,6 +207,12 @@ pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<Se
 
     let conn = Connection::open(&path)?;
 
+    // ── Try FTS first ──
+    if let Ok(results) = search_fts(&conn, query, chat_id, limit) {
+        return Ok(results);
+    }
+
+    // ── FTS not available / errored → LIKE fallback ──
     let sql = if chat_id.is_some() {
         "SELECT msg_id, chat_id, chat_type, sender_id, sender_name, content, timestamp, time_str
          FROM messages
@@ -200,8 +228,6 @@ pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<Se
     };
 
     let pattern = format!("%{}%", query);
-    let mut results = Vec::new();
-
     let mut stmt = conn.prepare(sql)?;
     let rows = if let Some(cid) = chat_id {
         stmt.query(params![pattern, cid, limit as i64])?
@@ -210,6 +236,7 @@ pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<Se
     };
 
     let mut rows = rows;
+    let mut results = Vec::new();
     while let Some(row) = rows.next()? {
         results.push(SearchResult {
             msg_id: row.get(0)?,
@@ -224,6 +251,135 @@ pub fn search(query: &str, chat_id: Option<&str>, limit: usize) -> Result<Vec<Se
     }
 
     Ok(results)
+}
+
+/// DuckDB FTS (BM25) search — 5 件事 E
+///
+/// Uses DuckDB's built-in `fts_main_messages.match_bm25` against the
+/// FTS index built by `init_db` (PRAGMA create_fts_index). On success
+/// returns rows ordered by BM25 score (best matches first).
+///
+/// Returns Err if the FTS index is missing (legacy DBs) or the FTS
+/// extension is not available — caller is expected to fall back to
+/// the LIKE path. Empty result set is a real answer and is Ok(vec![]).
+fn search_fts(
+    conn: &Connection,
+    query: &str,
+    chat_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<SearchResult>> {
+    let sql = if chat_id.is_some() {
+        "SELECT m.msg_id, m.chat_id, m.chat_type, m.sender_id, m.sender_name,
+                m.content, m.timestamp, m.time_str
+         FROM messages m
+         JOIN (
+             SELECT id, fts_main_messages.match_bm25(id, ?) AS score
+             FROM messages
+             WHERE score IS NOT NULL
+         ) AS r ON m.id = r.id
+         WHERE m.chat_id = ?
+         ORDER BY r.score DESC
+         LIMIT ?"
+    } else {
+        "SELECT m.msg_id, m.chat_id, m.chat_type, m.sender_id, m.sender_name,
+                m.content, m.timestamp, m.time_str
+         FROM messages m
+         JOIN (
+             SELECT id, fts_main_messages.match_bm25(id, ?) AS score
+             FROM messages
+             WHERE score IS NOT NULL
+         ) AS r ON m.id = r.id
+         ORDER BY r.score DESC
+         LIMIT ?"
+    };
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = if let Some(cid) = chat_id {
+        stmt.query(params![query, cid, limit as i64])?
+    } else {
+        stmt.query(params![query, limit as i64])?
+    };
+
+    let mut rows = rows;
+    let mut results = Vec::new();
+    while let Some(row) = rows.next()? {
+        results.push(SearchResult {
+            msg_id: row.get(0)?,
+            chat_id: row.get(1)?,
+            chat_type: row.get(2)?,
+            sender_id: row.get(3)?,
+            sender_name: row.get(4)?,
+            content: row.get(5)?,
+            timestamp: row.get(6)?,
+            time_str: row.get(7)?,
+        });
+    }
+    Ok(results)
+}
+
+#[cfg(test)]
+mod fts_tests {
+    use super::*;
+    use std::env;
+
+    /// When the FTS extension is not installed, search_fts should
+    /// return Err (not panic, not silently return empty). The
+    /// top-level search() then falls through to the LIKE path.
+    ///
+    /// This is the realistic case for a fresh CI/dev environment
+    /// where the user has not run `INSTALL fts; LOAD fts;`. The test
+    /// builds a minimal DB with no FTS index and verifies the
+    /// failure mode.
+    #[test]
+    fn search_fts_errors_when_no_fts_index() {
+        let tmp = env::temp_dir().join(format!(
+            "qqcli_no_fts_{}.duckdb",
+            std::process::id()
+        ));
+        if tmp.exists() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        // Create schema WITHOUT FTS (mimics legacy DB).
+        let conn = Connection::open(&tmp).expect("open db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY,
+                msg_id BIGINT, chat_id TEXT, chat_type TEXT, sender_id BIGINT,
+                sender_name TEXT, content TEXT, timestamp BIGINT,
+                time_str TEXT, msg_type TEXT, is_mine BOOLEAN DEFAULT FALSE
+            );
+            INSERT INTO messages (id, msg_id, chat_id, chat_type, sender_id, sender_name, content, timestamp, time_str, msg_type, is_mine)
+            VALUES (1, 1, 'c1', 'private', 100, 'Alice', 'fallback match', 1700000000, '2023-11-14 22:13:20', 'text', false);
+            "#,
+        )
+        .expect("create + insert");
+
+        let r = search_fts(&conn, "fallback", None, 10);
+        assert!(r.is_err(), "search_fts should error when no FTS index exists, got {:?}", r.is_ok());
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// Verify that init_db does not error out even when the FTS
+    /// extension is unavailable. The PRAGMA is best-effort; on
+    /// success it gives us real FTS, on failure we fall through
+    /// to LIKE.
+    #[test]
+    fn init_db_does_not_panic_when_fts_unavailable() {
+        let tmp = env::temp_dir().join(format!(
+            "qqcli_init_{}.duckdb",
+            std::process::id()
+        ));
+        if tmp.exists() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        // Should not panic, even though the FTS extension is likely
+        // absent in the test environment.
+        let r = init_db(&tmp);
+        assert!(r.is_ok(), "init_db should succeed, got {:?}", r.err());
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
 
 #[derive(Debug)]
