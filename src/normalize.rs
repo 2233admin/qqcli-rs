@@ -262,7 +262,7 @@ fn dispatch_json_value(v: &Value) -> Option<Segment> {
         Some(7) => reply_from_json(v),
         Some(8) => at_from_json(v),
         Some(11) => mface_from_json(v),
-        Some(16) => Some(forward_from_json(v)),
+        Some(16) => Some(forward_from_json(v, 0)),
         Some(n) => Some(unknown_element_type(n, v)),
         _ => None,
     }
@@ -497,9 +497,13 @@ fn at_from_json(v: &Value) -> Option<Segment> {
     })
 }
 
-fn forward_from_json(v: &Value) -> Segment {
-    // One-level expansion only: we extract the `multiForwardMsgElement`
-    // metadata but do **not** recurse into `messages` yet (task #3).
+fn forward_from_json(v: &Value, depth: u8) -> Segment {
+    // Recursive forward expansion, bounded at MAX_FORWARD_DEPTH=5.
+    // Beyond that we surface an Unknown segment with a clear reason
+    // rather than silently truncating — the upper layers (export /
+    // bundle / search) only ever see Segment::Forward, never a
+    // stringly-typed raw blob.  See task #3 of the 5-件事 decoupling.
+    const MAX_FORWARD_DEPTH: u8 = 5;
     let fwd = v.get("multiForwardMsgElement").unwrap_or(v);
     let sender_id = fwd
         .get("sender_id")
@@ -513,9 +517,9 @@ fn forward_from_json(v: &Value) -> Segment {
         .map(str::to_string);
     // Parse the embedded XML preview (if any) so the Forward segment
     // carries title / summary / source_name / forwarded_count instead
-    // of just an opaque BLOB. The preview is parsed but currently
-    // not threaded into ForwardNode metadata; task #3 will pick it
-    // up via the recursion layer.
+    // of just an opaque BLOB. Preview metadata is parsed here but the
+    // ForwardNode struct (sender_id/sender_name/timestamp/segments)
+    // does not yet surface these — task #3 will pick them up.
     let xml_content = fwd.get("xmlContent").and_then(|x| x.as_str());
     let _preview = parse_forward_preview_xml(xml_content.unwrap_or(""));
 
@@ -539,14 +543,48 @@ fn forward_from_json(v: &Value) -> Segment {
                     .and_then(|x| x.as_i64())
                     .unwrap_or(0);
                 let segments = if obj.contains_key("forward") || obj.contains_key("messages") {
-                    // Nested forward present — record an empty segments
-                    // list and mark it via a synthetic Unknown in the
-                    // node. The recursive walker in task #3 will fill
-                    // this in.
-                    vec![Segment::Unknown {
-                        raw_json: preview_json(&Value::Object(obj.clone()), 128),
-                        reason: "nested forward — not yet expanded".to_string(),
-                    }]
+                    if depth + 1 >= MAX_FORWARD_DEPTH {
+                        // Bail out: cap reached, do not recurse further.
+                        // Surface an explicit Unknown so callers can see
+                        // exactly which node hit the cap.
+                        vec![Segment::Unknown {
+                            raw_json: preview_json(&Value::Object(obj.clone()), 128),
+                            reason: format!("max forward depth {}", MAX_FORWARD_DEPTH),
+                        }]
+                    } else {
+                        // Recurse one level deeper, then flatten the
+                        // resulting ForwardNode.segments into this node
+                        // so the depth cap is not visible to upper
+                        // layers — they just see a Forward segment.
+                        //
+                        // `obj.forward` may be a multiForwardMsgElement
+                        // object (the common case) or a raw messages
+                        // array (the bundled variant). Normalize both
+                        // shapes into a multiForwardMsgElement object so
+                        // the recursive call has a stable input contract.
+                        let inner = obj
+                            .get("forward")
+                            .or_else(|| obj.get("messages"))
+                            .cloned()
+                            .unwrap_or(Value::Null);
+                        let inner_obj = match inner {
+                            Value::Object(_) => inner,
+                            Value::Array(arr) => {
+                                let mut m = serde_json::Map::new();
+                                m.insert("messages".to_string(), Value::Array(arr));
+                                Value::Object(m)
+                            }
+                            _ => Value::Null,
+                        };
+                        let inner_segment = forward_from_json(&inner_obj, depth + 1);
+                        match inner_segment {
+                            Segment::Forward { messages, .. } => messages
+                                .into_iter()
+                                .flat_map(|n| n.segments)
+                                .collect(),
+                            other => vec![other],
+                        }
+                    }
                 } else {
                     // No nested forward; copy any plain text we find.
                     obj.get("text")
@@ -1222,6 +1260,105 @@ mod tests {
             other => panic!("expected Forward, got {:?}", other),
         }
         assert_eq!(mws.primary_type, "转发");
+    }
+
+    #[test]
+    fn forward_depth_5_caps_at_unknown() {
+        // Construct a 6-level-deep nested forward. The outermost
+        // call is depth 0; the 5th recursion is depth 4, and the
+        // 6th recursion would push to depth 5, which is `>= MAX`
+        // so the cap kicks in and the innermost node becomes
+        // Unknown { reason: "max forward depth 5" }.
+        //
+        // The contract is: upper layers (export/bundle/search) only
+        // see Segment::Forward, never a stringly-typed raw blob.
+        //
+        // Wrap shape mirrors real NT QQ data: each level is a
+        // multiForwardMsgElement-style object (sender_id, sender_name,
+        // timestamp, messages: [...]). The OUTERMOST level carries
+        // elementType=16 because normalize_blob_to_segments dispatches
+        // on that, but inner levels don't.
+        let inner = serde_json::json!({
+            "sender_id": "u5",
+            "sender_name": "Deep",
+            "timestamp": 0,
+            "messages": [
+                {"sender_id": "u6", "sender_name": "Bottom", "timestamp": 0, "text": "core"}
+            ]
+        });
+        let mut cur = inner;
+        for i in 0..6 {
+            cur = serde_json::json!({
+                "sender_id": format!("u{}", i),
+                "sender_name": format!("L{}", i),
+                "timestamp": i,
+                "messages": [cur]
+            });
+        }
+        // Outermost envelope — elementType=16 + multiForwardMsgElement wrapper.
+        let outer = serde_json::json!({
+            "elementType": 16,
+            "multiForwardMsgElement": cur
+        });
+        let raw = serde_json::to_string(&outer).unwrap();
+        let mws = normalize_blob_to_segments(raw.as_bytes());
+        // Outer is one Forward segment.
+        assert_eq!(mws.segments.len(), 1, "expected 1 outer segment, got {}", mws.segments.len());
+        // Walk: at some depth we must encounter an Unknown with the cap reason.
+        fn find_cap(seg: &Segment) -> bool {
+            match seg {
+                Segment::Unknown { reason, .. } if reason.starts_with("max forward depth") => true,
+                Segment::Forward { messages, .. } => messages
+                    .iter()
+                    .any(|n| n.segments.iter().any(find_cap)),
+                _ => false,
+            }
+        }
+        assert!(find_cap(&mws.segments[0]), "expected a depth-cap Unknown segment in the tree");
+    }
+
+    #[test]
+    fn forward_nested_recursive_unwraps() {
+        // 2-level forward should unwrap cleanly: the inner Forward's
+        // messages are flattened into the outer ForwardNode.segments
+        // so depth is not visible to callers.
+        let json = serde_json::json!({
+            "elementType": 16,
+            "multiForwardMsgElement": {
+                "sender_id": "u0",
+                "sender_name": "Outer",
+                "messages": [{
+                    "sender_id": "u1",
+                    "sender_name": "Inner",
+                    "timestamp": 1,
+                    "forward": {
+                        "multiForwardMsgElement": {
+                            "sender_id": "u2",
+                            "sender_name": "Core",
+                            "messages": [
+                                {"sender_id": "u3", "sender_name": "Msg", "timestamp": 2, "text": "leaf"}
+                            ]
+                        }
+                    }
+                }]
+            }
+        });
+        let raw = serde_json::to_string(&json).unwrap();
+        let mws = normalize_blob_to_segments(raw.as_bytes());
+        assert_eq!(mws.segments.len(), 1);
+        match &mws.segments[0] {
+            Segment::Forward { messages, .. } => {
+                assert_eq!(messages.len(), 1);
+                let inner_segs = &messages[0].segments;
+                // We expect the text "leaf" reachable through the
+                // inner segments, not stuck behind an Unknown.
+                let has_text = inner_segs.iter().any(|s| matches!(s, Segment::Text { text } if text == "leaf"));
+                let has_unknown = inner_segs.iter().any(|s| matches!(s, Segment::Unknown { .. }));
+                assert!(has_text, "expected leaf text, got {:?}", inner_segs);
+                assert!(!has_unknown, "did not expect Unknown in 2-level forward, got {:?}", inner_segs);
+            }
+            other => panic!("expected Forward, got {:?}", other),
+        }
     }
 
     #[test]
