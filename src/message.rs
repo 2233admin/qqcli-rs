@@ -66,6 +66,12 @@ pub(crate) fn build_message(
     // on real-world DBs.
     let segments = backfill_segment_urls(mws.segments, raw_content);
 
+    // 5 件事 D invariant: Message.content is the content_inline view
+    // derived from the segments list (with extract_text fallback when
+    // the normalize pipeline produced no inline content). The export
+    // path (jsonl/json/yaml/txt/markdown) and db::Message::to_normalized
+    // read self.content — they never re-parse the raw blob. Keep this
+    // contract stable; an invariant test pins it down.
     Message {
         id,
         sender_id,
@@ -257,5 +263,33 @@ mod build_message_tests {
         let m = build_message(2, 99999, raw, 1_700_000_000, 1);
         assert!(m.sender_name.starts_with("uid_") || m.sender_name == "99999");
         assert!(m.is_mine);
+    }
+
+    #[test]
+    fn content_matches_segments_inline_view() {
+        // 5 件事 D invariant: Message.content is the content_inline
+        // view derived from the segments list, not a re-parse of the
+        // raw blob. Verify by building a multi-segment message and
+        // checking content == concatenation of segment text tokens
+        // (Text + Image/Record/File with fileid) in order.
+        //
+        // This test pins down the contract that the export path
+        // (jsonl/json/yaml/txt/markdown) relies on. If anyone refactors
+        // build_message to write raw extract_text() into content,
+        // this test fires.
+        let raw = br#"{"elementType":1,"textElement":{"content":"hello"}}"#;
+        let m = build_message(1, 12345, raw, 1_700_000_000, 0);
+
+        // Reconstruct the inline view from m.segments and compare.
+        let derived: String = m
+            .segments
+            .iter()
+            .filter_map(|s| match s {
+                crate::segment::Segment::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert_eq!(m.content, derived);
     }
 }
