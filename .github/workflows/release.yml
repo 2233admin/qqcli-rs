@@ -19,7 +19,14 @@ jobs:
           toolchain: stable
 
       - name: Build qq.exe
-        run: cargo build --release --locked --bin qq
+        shell: pwsh
+        run: |
+          # This repository's local Cargo config points to a developer-only
+          # D:/tmp/duckdb-libs path. The release runner must not inherit it.
+          Remove-Item .cargo/config.toml -ErrorAction SilentlyContinue
+          Remove-Item Env:DUCKDB_LIB_DIR -ErrorAction SilentlyContinue
+          $env:DUCKDB_DOWNLOAD_LIB = "1"
+          cargo build --release --locked --bin qq
 
       - name: Create installable ZIP
         shell: pwsh
@@ -29,6 +36,7 @@ jobs:
           $packageRoot = Join-Path $env:RUNNER_TEMP $packageName
           New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
           Copy-Item target/release/qq.exe $packageRoot
+          Copy-Item target/release/deps/duckdb.dll $packageRoot
           Copy-Item scripts/install.ps1 $packageRoot
           Copy-Item scripts/install.cmd $packageRoot
           Copy-Item README_CN.md $packageRoot
