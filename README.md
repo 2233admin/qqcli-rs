@@ -63,6 +63,7 @@ qq search "keyword"     # 0.3 seconds. No QQ. No scrolling.
 | `qq sessions` | List recent chat sessions |
 | `qq init` | Select an account, inspect the database, and show the next action |
 | `qq doctor` | Check local decryption tools and configuration |
+| `qq version --json` | Report the installed version and platform |
 | `qq history <id>` | View chat history with timestamps |
 | `qq history <id> --since 2024-01-01` | Filter by date range |
 | `qq index` | Build full-text search index |
@@ -84,7 +85,7 @@ qq search "keyword"     # 0.3 seconds. No QQ. No scrolling.
 
 When an encrypted database is found, `qq init` first explains the one-time local data access needed for decryption and asks for consent. In JSON/Agent mode, it returns `status: "consent_required"`; the agent must show `consent.scope` to the user and may only run `qq init --consent-decrypt` after the user agrees. Consent is never saved as a permanent switch.
 
-For automation, use `qq --json init`. A non-zero exit code means that the JSON `next_command` must be handled. `QQCLI_DB_PATH` and `QQCLI_DB_KEY` can be supplied by the agent without persisting the key.
+For automation, use `qq --json init`. Exit code `2` means that the JSON consent payload must be shown to the Human User; exit code `3` means repair or setup is required. `QQCLI_DB_PATH` and `QQCLI_DB_KEY` can be supplied by the agent without persisting the key.
 
 ### Run
 
@@ -96,8 +97,14 @@ qq sessions
 qq index && qq search "meeting"
 
 # Export a chat
-qq export 123456789 -o chat.md
+qq --json export 123456789 -o chat.md
+# After the Human User approves the exact destination and format:
+qq export 123456789 -o chat.md --consent-external-disclosure
 ```
+
+`export`, `bundle`, and `sync` are External Disclosure operations. They never run in Agent/JSON mode without a new explicit consent flag. Local `history`, `search`, and `sessions` are Read Access and do not grant export permission.
+
+To upgrade, verify the downloaded ZIP against `SHA256SUMS.txt`, extract it, and run the included installer again. The installer checks `VERSION.txt`, checks `qq.exe --version`, and copies the required `duckdb.dll` beside the executable. Code signing is not yet delivered; SHA-256 verification is required.
 
 ---
 

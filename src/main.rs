@@ -63,6 +63,9 @@ enum Commands {
     /// 检查数据库、解密依赖与配置是否可用
     Doctor {},
 
+    /// 输出稳定的版本和安装检查结果
+    Version {},
+
     /// 调试: 查看表结构
     #[command(hide = true)]
     DebugTables {},
@@ -149,6 +152,9 @@ enum Commands {
         /// 输出文件 (默认 stdout)
         #[arg(short, long)]
         output: Option<String>,
+        /// 已获得本次 External Disclosure 的明确授权
+        #[arg(long)]
+        consent_external_disclosure: bool,
     },
 
     /// 打包聊天记录中的媒体文件到 ZIP
@@ -167,6 +173,9 @@ enum Commands {
         /// 输出 ZIP 文件路径
         #[arg(short, long, default_value = "media.zip")]
         output: String,
+        /// 已获得本次 External Disclosure 的明确授权
+        #[arg(long)]
+        consent_external_disclosure: bool,
     },
 
     /// 有未读消息的会话
@@ -234,6 +243,9 @@ enum Commands {
         /// access_token
         #[arg(long)]
         token: Option<String>,
+        /// 已获得本次 External Disclosure 的明确授权
+        #[arg(long)]
+        consent_external_disclosure: bool,
     },
 
     /// 生成 shell 补全脚本
@@ -272,7 +284,14 @@ enum ConfigCommands {
     ClearDbPath,
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("错误: {}", commands::error_message(&error));
+        std::process::exit(commands::exit_code(&error));
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
 
     if let Commands::Completion { shell } = &cli.command {
@@ -301,6 +320,7 @@ fn main() -> Result<()> {
             ConfigCommands::ClearDbPath => commands::config_clear_db_path(cli.json),
         },
         Commands::Doctor {} => commands::doctor(cli.json),
+        Commands::Version {} => commands::version(cli.json),
         Commands::DebugTables {} => commands::debug_tables(),
         Commands::DebugProbe {} => commands::debug_probe(),
         Commands::Sessions { limit } => commands::sessions(*limit, cli.json),
@@ -344,14 +364,18 @@ fn main() -> Result<()> {
             limit,
             format,
             output,
+            consent_external_disclosure,
         } => commands::export(
             chat,
-            since.as_deref(),
-            until.as_deref(),
-            *limit,
-            format,
-            output.as_deref(),
-            cli.json,
+            &commands::ExportOptions {
+                since: since.as_deref(),
+                until: until.as_deref(),
+                limit: *limit,
+                format,
+                output: output.as_deref(),
+                json: cli.json,
+                consent_external_disclosure: *consent_external_disclosure,
+            },
         ),
         Commands::Bundle {
             chat,
@@ -359,7 +383,16 @@ fn main() -> Result<()> {
             until,
             limit,
             output,
-        } => commands::bundle_media(chat, since.as_deref(), until.as_deref(), *limit, output),
+            consent_external_disclosure,
+        } => commands::bundle_media(
+            chat,
+            since.as_deref(),
+            until.as_deref(),
+            *limit,
+            output,
+            cli.json,
+            *consent_external_disclosure,
+        ),
         Commands::Unread { limit } => commands::unread(*limit, cli.json),
         Commands::Members { chat } => commands::members(chat, cli.json),
         Commands::NewMessages { limit } => commands::new_messages(*limit, cli.json),
@@ -388,11 +421,20 @@ fn main() -> Result<()> {
                 .build()?;
             rt.block_on(napcat::run(sub, url, token_ref, &args_ref))
         }
-        Commands::Sync { url, token } => {
+        Commands::Sync {
+            url,
+            token,
+            consent_external_disclosure,
+        } => {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
-            rt.block_on(commands::sync(url, token.as_deref()))
+            rt.block_on(commands::sync(
+                url,
+                token.as_deref(),
+                cli.json,
+                *consent_external_disclosure,
+            ))
         }
         Commands::Completion { .. } => unreachable!(),
         Commands::Index {} => commands::index(),

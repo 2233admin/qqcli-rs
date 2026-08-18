@@ -63,6 +63,7 @@ qq search "关键词"     # 0.3秒。不开QQ。不翻记录。
 | `qq sessions` | 列出最近会话 |
 | `qq init` | 选择账号、检查数据库状态并给出下一步 |
 | `qq doctor` | 检查解密所需工具和本机配置 |
+| `qq version --json` | 输出已安装版本和平台 |
 | `qq history <id>` | 查看聊天记录（带时间戳） |
 | `qq history <id> --since 2024-01-01` | 按日期过滤 |
 | `qq index` | 建立全文搜索索引 |
@@ -104,7 +105,8 @@ qq --json init
 ```
 
 - 退出码 `0`：数据库可用；
-- 退出码 `1`：需要选择账号、设置路径、配置依赖或获取用户解密授权；JSON 的 `next_command` 给出下一步；
+- 退出码 `2`：必须把 JSON 授权范围展示给用户并等待明确同意；
+- 退出码 `3`：需要选择账号、设置路径或修复配置；JSON 的 `next_command` 给出下一步；
 - `status: "consent_required"` 时，Agent 必须把 `consent.scope` 原样告知用户；只有用户同意后，才能执行 `consent.command_after_user_agrees`；
 - Agent 可通过 `QQCLI_DB_PATH` 传入数据库路径，通过 `QQCLI_DB_KEY` 临时传入密钥；后者不会写入磁盘。
 
@@ -118,8 +120,14 @@ qq sessions
 qq index && qq search "会议"
 
 # 导出会话
-qq export 123456789 -o chat.md
+qq --json export 123456789 -o chat.md
+# 用户确认准确的目标和格式后：
+qq export 123456789 -o chat.md --consent-external-disclosure
 ```
+
+`export`、`bundle` 和 `sync` 都属于 External Disclosure。Agent/JSON 模式没有新的明确授权时不会执行。`history`、`search`、`sessions` 是本地 Read Access，不会自动获得导出权限。
+
+升级时先用 `SHA256SUMS.txt` 校验 ZIP，再解压并重新运行安装器。安装器会校验 `VERSION.txt`、`qq.exe --version`，并把必需的 `duckdb.dll` 一起安装到可执行文件旁边。目前尚未提供代码签名，必须先做 SHA-256 校验。
 
 ---
 

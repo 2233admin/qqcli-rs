@@ -36,13 +36,31 @@ jobs:
           $packageRoot = Join-Path $env:RUNNER_TEMP $packageName
           New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
           Copy-Item target/release/qq.exe $packageRoot
-          Copy-Item target/release/deps/duckdb.dll $packageRoot
+          $duckdb = Get-ChildItem target/release -Recurse -Filter duckdb.dll | Select-Object -First 1
+          if (-not $duckdb) { throw 'duckdb.dll was not produced by the release build' }
+          Copy-Item $duckdb.FullName $packageRoot
           Copy-Item scripts/install.ps1 $packageRoot
           Copy-Item scripts/install.cmd $packageRoot
+          Copy-Item README.md $packageRoot
           Copy-Item README_CN.md $packageRoot
+          '${{ github.ref_name }}'.Substring(1) | Set-Content (Join-Path $packageRoot 'VERSION.txt')
+          @{
+            version = '${{ github.ref_name }}'.Substring(1)
+            package = $packageName
+            platform = 'windows-x86_64'
+            files = @('qq.exe', 'duckdb.dll', 'install.ps1', 'install.cmd', 'VERSION.txt', 'README.md', 'README_CN.md', 'RELEASE-MANIFEST.json')
+            code_signing = 'not-yet-delivered; verify SHA256SUMS.txt before extraction'
+          } | ConvertTo-Json | Set-Content (Join-Path $packageRoot 'RELEASE-MANIFEST.json')
+          $version = '${{ github.ref_name }}'.Substring(1)
+          $reported = (& (Join-Path $packageRoot 'qq.exe') --version 2>$null | Out-String).Trim()
+          if ($reported -ne "qq $version") { throw "version smoke test failed: $reported" }
           Compress-Archive -Path $packageRoot -DestinationPath "$packageName.zip" -Force
           $hash = (Get-FileHash "$packageName.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $packageName.zip" | Set-Content -NoNewline SHA256SUMS.txt
+
+          $installSmoke = Join-Path $env:RUNNER_TEMP 'qqcli-install-smoke'
+          & (Join-Path $packageRoot 'install.ps1') -InstallDir $installSmoke
+          if (-not (Test-Path (Join-Path $installSmoke 'duckdb.dll'))) { throw 'installer did not copy duckdb.dll' }
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

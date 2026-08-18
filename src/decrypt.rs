@@ -63,22 +63,33 @@ pub fn detect_db_status() -> DbStatus {
             }
             return DbStatus::NotFound(crate::db::default_db_path());
         }
-        Err(_) => return DbStatus::NotFound(crate::db::default_db_path()),
+        Err(_) => {
+            let configured = crate::db::raw_db_candidates().into_iter().next();
+            return DbStatus::NotFound(configured.unwrap_or_else(crate::db::default_db_path));
+        }
     };
 
-    let decrypted = crate::db::decrypted_db_path(&raw_db);
-    if can_open_plaintext(&decrypted) {
+    detect_db_status_for(&raw_db)
+}
+
+/// 检查调用方已经明确选择的原始数据库，不重新解析全局环境或配置。
+pub fn detect_db_status_for(raw_db: &Path) -> DbStatus {
+    let decrypted = crate::db::decrypted_db_path(raw_db);
+    if can_open_plaintext(&decrypted) && crate::db::decrypted_copy_is_current(raw_db, &decrypted) {
         return DbStatus::Plaintext(decrypted);
     }
 
     // 原始文件也可能本身就是明文数据库。
-    if can_open_plaintext(&raw_db) {
-        return DbStatus::Plaintext(raw_db);
+    if can_open_plaintext(raw_db) {
+        return DbStatus::Plaintext(raw_db.to_path_buf());
     }
 
     let key = crate::config::get_key().ok().flatten();
 
-    DbStatus::Encrypted { raw_db, key }
+    DbStatus::Encrypted {
+        raw_db: raw_db.to_path_buf(),
+        key,
+    }
 }
 
 fn can_open_plaintext(path: &Path) -> bool {
@@ -195,6 +206,8 @@ DETACH DATABASE plaintext;"#,
     if rusqlite::Connection::open(output).is_err() {
         bail!("解密后的 DB 无法打开，可能密钥错误");
     }
+
+    crate::db::write_decrypted_binding(raw_db, output)?;
 
     eprintln!("解密完成: {}", output.display());
     Ok(())

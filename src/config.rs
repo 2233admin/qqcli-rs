@@ -78,9 +78,13 @@ fn account_from_db_path(path: &Path) -> Option<String> {
 
 /// 保存用户选择的数据库路径，后续命令不需要重复传环境变量。
 pub fn save_db_path(path: &Path) -> Result<()> {
+    save_db_path_for_account(path, account_from_db_path(path))
+}
+
+pub fn save_db_path_for_account(path: &Path, account: Option<String>) -> Result<()> {
     let mut cfg = get_config().unwrap_or_default();
     cfg.db_path = Some(path.to_path_buf());
-    cfg.db_uin = account_from_db_path(path);
+    cfg.db_uin = account.or_else(|| account_from_db_path(path));
     write_config(&cfg)
 }
 

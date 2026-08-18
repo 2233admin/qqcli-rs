@@ -6,7 +6,7 @@ use crate::db_index;
 use crate::decrypt;
 use crate::napcat::ipc_client::NapcatIpcClient;
 use crate::output::YamlWriter;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use rusqlite::params;
 use serde::Serialize;
 use std::{
@@ -17,6 +17,84 @@ use std::{
 use crate::schema::{
     C2C_PEER_ID, C2C_SENDER_ID, C2C_SENDER_NAME, CONTENT, IS_SENDER_ME, MSG_ID, TIMESTAMP,
 };
+
+pub const EXIT_CONSENT_REQUIRED: i32 = 2;
+pub const EXIT_REPAIR_REQUIRED: i32 = 3;
+
+#[derive(Debug)]
+pub struct CommandFailure {
+    code: i32,
+    message: String,
+}
+
+impl CommandFailure {
+    pub fn new(code: i32, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for CommandFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CommandFailure {}
+
+pub fn exit_code(error: &anyhow::Error) -> i32 {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<CommandFailure>().map(|e| e.code))
+        .unwrap_or(1)
+}
+
+pub fn error_message(error: &anyhow::Error) -> String {
+    error
+        .chain()
+        .find_map(|cause| {
+            cause
+                .downcast_ref::<CommandFailure>()
+                .map(|failure| failure.message.clone())
+        })
+        .unwrap_or_else(|| error.to_string())
+}
+
+/// Diagnostic Reports expose useful location context without exposing a user's profile path.
+pub fn redact_path(path: &Path) -> String {
+    let path_text = path.to_string_lossy();
+    for base in [
+        dirs::home_dir(),
+        dirs::data_local_dir(),
+        dirs::config_dir(),
+        dirs::document_dir(),
+        Some(std::env::temp_dir()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let base_text = base.to_string_lossy();
+        if let Ok(relative) = path.strip_prefix(&base) {
+            let suffix = relative.to_string_lossy();
+            return if suffix.is_empty() {
+                "<LOCAL_PATH>".to_string()
+            } else {
+                format!("<LOCAL_PATH>\\{}", suffix.replace('/', "\\"))
+            };
+        }
+        if path_text.eq_ignore_ascii_case(&base_text) {
+            return "<LOCAL_PATH>".to_string();
+        }
+    }
+
+    if path.is_absolute() {
+        "<LOCAL_PATH>".to_string()
+    } else {
+        path_text.into_owned()
+    }
+}
 
 #[derive(Debug, Serialize)]
 struct InitCandidate {
@@ -112,6 +190,92 @@ fn request_decrypt_consent() -> Result<bool> {
     Ok(matches!(answer.trim(), "同意" | "yes" | "YES" | "y" | "Y"))
 }
 
+#[derive(Debug, Serialize)]
+struct ExternalDisclosureConsent {
+    required: bool,
+    action: &'static str,
+    scope: Vec<String>,
+    destination: String,
+    format: String,
+    command_after_user_agrees: String,
+}
+
+fn disclosure_consent(destination: &str, format: &str) -> ExternalDisclosureConsent {
+    disclosure_consent_for(
+        destination,
+        format,
+        "qq export <会话> --consent-external-disclosure",
+    )
+}
+
+fn disclosure_consent_for(
+    destination: &str,
+    format: &str,
+    command_after_user_agrees: &str,
+) -> ExternalDisclosureConsent {
+    ExternalDisclosureConsent {
+        required: true,
+        action: "将 QQ 消息或媒体写入本地文件，或从网络下载媒体并写入 ZIP",
+        scope: vec![
+            format!("读取选定会话的消息内容并生成 {} 格式数据", format),
+            format!(
+                "将数据写入这个目标：{}",
+                redact_path(Path::new(destination))
+            ),
+            "这不是本地 Read Access；数据会离开只读数据库查询并写入目标".to_string(),
+            "不会向未列出的目的地上传，也不会保存永久授权".to_string(),
+        ],
+        destination: redact_path(Path::new(destination)),
+        format: format.to_string(),
+        command_after_user_agrees: command_after_user_agrees.to_string(),
+    }
+}
+
+fn request_disclosure_consent(consent: &ExternalDisclosureConsent) -> Result<bool> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Ok(false);
+    }
+
+    println!("这个操作需要单独的 External Disclosure 授权：");
+    println!("  - {}", consent.action);
+    for scope in &consent.scope {
+        println!("  - {scope}");
+    }
+    print!("确认只授权这一次操作吗？输入“同意”继续： ");
+    io::stdout().flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    Ok(matches!(answer.trim(), "同意" | "yes" | "YES" | "y" | "Y"))
+}
+
+fn disclosure_required_error(consent: &ExternalDisclosureConsent, json: bool) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "status": "external_disclosure_consent_required",
+                "message": "需要新的明确授权才能执行 External Disclosure",
+                "consent": consent,
+                "next_command": consent.command_after_user_agrees,
+            })
+        );
+    } else {
+        println!(
+            "需要新的明确授权才能执行 External Disclosure。目标: {}",
+            consent.destination
+        );
+        for scope in &consent.scope {
+            println!("  - {scope}");
+        }
+        println!("下一步: {}", consent.command_after_user_agrees);
+    }
+    Err(anyhow!(CommandFailure::new(
+        EXIT_CONSENT_REQUIRED,
+        "需要用户授权才能执行 External Disclosure",
+    )))
+}
+
 #[cfg(test)]
 mod consent_tests {
     use super::decrypt_consent;
@@ -129,6 +293,59 @@ mod consent_tests {
             .scope
             .iter()
             .any(|scope| scope.contains("不会永久保存")));
+    }
+}
+
+#[cfg(test)]
+mod safety_contract_tests {
+    use super::{
+        disclosure_consent, disclosure_consent_for, redact_path, CommandFailure,
+        EXIT_CONSENT_REQUIRED,
+    };
+    use anyhow::anyhow;
+    use std::path::Path;
+
+    #[test]
+    fn external_disclosure_consent_names_data_and_destination() {
+        let consent = disclosure_consent("chat.md", "markdown");
+        assert!(consent.required);
+        assert!(consent.scope.iter().any(|item| item.contains("消息")));
+        assert!(consent.scope.iter().any(|item| item.contains("chat.md")));
+        assert_eq!(
+            consent.command_after_user_agrees,
+            "qq export <会话> --consent-external-disclosure"
+        );
+
+        let bundle = disclosure_consent_for(
+            "images.zip",
+            "ZIP 媒体包",
+            "qq bundle <会话> --consent-external-disclosure",
+        );
+        assert_eq!(
+            bundle.command_after_user_agrees,
+            "qq bundle <会话> --consent-external-disclosure"
+        );
+    }
+
+    #[test]
+    fn diagnostics_redact_user_profile_from_paths() {
+        let path = std::env::temp_dir()
+            .join("qqcli-sensitive")
+            .join("nt_msg.db");
+        let redacted = redact_path(Path::new(&path));
+        assert!(!redacted.contains(&std::env::temp_dir().display().to_string()));
+    }
+
+    #[test]
+    fn exit_code_finds_consent_failure_through_context() {
+        let error =
+            anyhow!(CommandFailure::new(EXIT_CONSENT_REQUIRED, "consent")).context("outer context");
+        assert_eq!(super::exit_code(&error), EXIT_CONSENT_REQUIRED);
+        assert_eq!(format!("{}", error), "outer context");
+
+        let direct = anyhow!(CommandFailure::new(EXIT_CONSENT_REQUIRED, "direct"));
+        assert_eq!(format!("{}", direct), "direct");
+        assert_eq!(super::error_message(&error), "consent");
     }
 }
 
@@ -184,14 +401,14 @@ pub fn init(
                     .to_string(),
             };
             print_init_report(&report, json)?;
-            return Err(err.context("初始化未完成"));
+            return Err(err.context(CommandFailure::new(EXIT_REPAIR_REQUIRED, "初始化未完成")));
         }
     };
 
-    crate::config::save_db_path(&selected)?;
     let account = db::account_from_db_path(&selected);
+    crate::config::save_db_path_for_account(&selected, account.clone())?;
 
-    match decrypt::detect_db_status() {
+    match decrypt::detect_db_status_for(&selected) {
         decrypt::DbStatus::Plaintext(path) => {
             let summary = db::validate_db(&path)?;
             let report = InitReport {
@@ -222,7 +439,10 @@ pub fn init(
                     next_command: "qq doctor".to_string(),
                 };
                 print_init_report(&report, json)?;
-                anyhow::bail!("初始化需要配置解密工具")
+                return Err(anyhow!(CommandFailure::new(
+                    EXIT_REPAIR_REQUIRED,
+                    "初始化需要配置解密工具",
+                )));
             }
 
             let authorized = consent_decrypt || (!json && request_decrypt_consent()?);
@@ -242,11 +462,18 @@ pub fn init(
                     next_command: "qq init --consent-decrypt".to_string(),
                 };
                 print_init_report(&report, json)?;
-                anyhow::bail!("需要用户授权才能解密")
+                return Err(anyhow!(CommandFailure::new(
+                    EXIT_CONSENT_REQUIRED,
+                    "需要用户授权才能解密",
+                )));
             }
 
-            let decrypted = decrypt::ensure_decrypted()
-                .context("解密失败。请确认 QQ NT 已登录，并检查 sqlcipher 与密钥提取工具配置。")?;
+            let decrypted = decrypt::ensure_decrypted().map_err(|err| {
+                err.context(CommandFailure::new(
+                    EXIT_REPAIR_REQUIRED,
+                    "解密失败。请确认 QQ NT 已登录，并检查 sqlcipher 与密钥提取工具配置。",
+                ))
+            })?;
             let summary = db::validate_db(&decrypted)?;
             let report = InitReport {
                 status: "ready",
@@ -274,7 +501,10 @@ pub fn init(
                         .to_string(),
             };
             print_init_report(&report, json)?;
-            anyhow::bail!("初始化未完成")
+            Err(anyhow!(CommandFailure::new(
+                EXIT_REPAIR_REQUIRED,
+                "初始化未完成",
+            )))
         }
     }
 }
@@ -398,28 +628,93 @@ pub fn config_clear_db_path(json: bool) -> Result<()> {
 }
 
 #[derive(Debug, Serialize)]
+struct VersionReport {
+    status: &'static str,
+    version: &'static str,
+    platform: &'static str,
+    next_command: &'static str,
+}
+
+pub fn version(json: bool) -> Result<()> {
+    let report = VersionReport {
+        status: "ok",
+        version: env!("CARGO_PKG_VERSION"),
+        platform: std::env::consts::OS,
+        next_command: "qq doctor",
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("qqcli {} ({})", report.version, report.platform);
+        println!("下一步: {}", report.next_command);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct DiagnosticPermissions {
+    database_readable: bool,
+    database_parent_writable: bool,
+    config_directory_writable: bool,
+    decrypted_copy_readable: bool,
+}
+
+#[derive(Debug, Serialize)]
 struct DoctorReport {
+    report_type: &'static str,
+    tool_version: &'static str,
+    platform: &'static str,
     database_status: String,
     database_path: Option<String>,
+    decrypted_copy_path: Option<String>,
     sqlcipher_path: String,
     sqlcipher_ready: bool,
     key_script_path: String,
     key_script_ready: bool,
     protected_key_saved: bool,
+    protected_key_status: &'static str,
+    permissions: DiagnosticPermissions,
     next_command: String,
+}
+
+fn path_readable(path: Option<&Path>) -> bool {
+    path.filter(|path| path.is_file())
+        .and_then(|path| std::fs::File::open(path).ok())
+        .is_some()
+}
+
+fn path_writable(path: Option<&Path>) -> bool {
+    let Some(path) = path else { return false };
+    let target = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(path).to_path_buf()
+    };
+    std::fs::metadata(target)
+        .map(|metadata| !metadata.permissions().readonly())
+        .unwrap_or(false)
 }
 
 pub fn doctor(json: bool) -> Result<()> {
     let prerequisites = decrypt::decrypt_prerequisites();
-    let protected_key_saved = crate::config::get_config()
-        .map(|cfg| cfg.db_key_protected.is_some())
-        .unwrap_or(false);
+    let config = crate::config::get_config().unwrap_or_default();
+    let protected_key_saved = config.db_key_protected.is_some();
+    let protected_key_status = if protected_key_saved {
+        match crate::config::get_key() {
+            Ok(Some(_)) => "available",
+            Ok(None) => "not_saved",
+            Err(_) => "unreadable",
+        }
+    } else {
+        "not_saved"
+    };
     let status = decrypt::detect_db_status();
 
-    let (database_status, database_path, next_command) = match status {
+    let (database_status, database_path, decrypted_copy_path, next_command) = match status {
         decrypt::DbStatus::Plaintext(path) => (
             "ready".to_string(),
-            Some(path.display().to_string()),
+            Some(redact_path(&path)),
+            None,
             "qq sessions --limit 20".to_string(),
         ),
         decrypt::DbStatus::Encrypted { raw_db, key } => {
@@ -432,25 +727,42 @@ pub fn doctor(json: bool) -> Result<()> {
             };
             (
                 "decrypt_required".to_string(),
-                Some(raw_db.display().to_string()),
+                Some(redact_path(&raw_db)),
+                Some(redact_path(&db::decrypted_db_path(&raw_db))),
                 next,
             )
         }
         decrypt::DbStatus::NotFound(path) => (
             "database_not_found".to_string(),
-            Some(path.display().to_string()),
+            Some(redact_path(&path)),
+            None,
             "qq init --account <QQ号>  或  qq init --db-path <nt_msg.db 路径>".to_string(),
         ),
     };
 
+    let database_for_permissions = config.db_path.as_deref();
+    let decrypted_for_permissions = database_for_permissions.map(db::decrypted_db_path);
+    let config_dir = crate::config::config_dir().ok();
+
     let report = DoctorReport {
+        report_type: "diagnostic_report",
+        tool_version: env!("CARGO_PKG_VERSION"),
+        platform: std::env::consts::OS,
         database_status,
         database_path,
-        sqlcipher_path: prerequisites.sqlcipher_path.display().to_string(),
+        decrypted_copy_path,
+        sqlcipher_path: redact_path(&prerequisites.sqlcipher_path),
         sqlcipher_ready: prerequisites.sqlcipher_ready,
-        key_script_path: prerequisites.key_script_path.display().to_string(),
+        key_script_path: redact_path(&prerequisites.key_script_path),
         key_script_ready: prerequisites.key_script_ready,
         protected_key_saved,
+        protected_key_status,
+        permissions: DiagnosticPermissions {
+            database_readable: path_readable(database_for_permissions),
+            database_parent_writable: path_writable(database_for_permissions),
+            config_directory_writable: path_writable(config_dir.as_deref()),
+            decrypted_copy_readable: path_readable(decrypted_for_permissions.as_deref()),
+        },
         next_command,
     };
 
@@ -476,10 +788,10 @@ pub fn doctor(json: bool) -> Result<()> {
         );
         println!(
             "受保护密钥: {}",
-            if report.protected_key_saved {
-                "已保存"
-            } else {
-                "未保存"
+            match report.protected_key_status {
+                "available" => "已保存且可读取",
+                "unreadable" => "已保存但当前用户无法读取",
+                _ => "未保存",
             }
         );
         println!("下一步: {}", report.next_command);
@@ -539,16 +851,20 @@ pub fn search(
 ) -> Result<()> {
     // 优先用 DuckDB 搜索
     if let Ok(results) = db_index::search(keyword, chat, limit) {
-        for r in results {
-            let content = if r.content.len() > 100 {
-                format!("{}...", &r.content[..100])
-            } else {
-                r.content
-            };
-            println!(
-                "[{}] {} ({}): {}",
-                r.time_str, r.sender_name, r.chat_id, content
-            );
+        if json_flag {
+            println!("{}", serde_json::to_string_pretty(&results)?);
+        } else {
+            for r in results {
+                let content = if r.content.len() > 100 {
+                    format!("{}...", &r.content[..100])
+                } else {
+                    r.content
+                };
+                println!(
+                    "[{}] {} ({}): {}",
+                    r.time_str, r.sender_name, r.chat_id, content
+                );
+            }
         }
         return Ok(());
     }
@@ -578,21 +894,31 @@ pub fn contacts(query: Option<&str>, limit: usize, kind: &str, json_flag: bool) 
 }
 
 /// 导出聊天记录，支持多种格式
-pub fn export(
-    chat: &str,
-    since: Option<&str>,
-    until: Option<&str>,
-    limit: usize,
-    format: &str,
-    output: Option<&str>,
-    json_flag: bool,
-) -> Result<()> {
-    let since_ts = since.and_then(|s| db::parse_ts(s).ok());
-    let until_ts = until.and_then(|s| db::parse_ts(s).ok());
+pub struct ExportOptions<'a> {
+    pub since: Option<&'a str>,
+    pub until: Option<&'a str>,
+    pub limit: usize,
+    pub format: &'a str,
+    pub output: Option<&'a str>,
+    pub json: bool,
+    pub consent_external_disclosure: bool,
+}
 
-    let messages = db::get_messages(chat, limit, 0, since_ts, until_ts, None)?;
+pub fn export(chat: &str, options: &ExportOptions<'_>) -> Result<()> {
+    let destination = options.output.unwrap_or("<stdout>");
+    let consent = disclosure_consent(destination, options.format);
+    let authorized = options.consent_external_disclosure
+        || (!options.json && request_disclosure_consent(&consent)?);
+    if !authorized {
+        return disclosure_required_error(&consent, options.json);
+    }
 
-    let content = match format {
+    let since_ts = options.since.and_then(|s| db::parse_ts(s).ok());
+    let until_ts = options.until.and_then(|s| db::parse_ts(s).ok());
+
+    let messages = db::get_messages(chat, options.limit, 0, since_ts, until_ts, None)?;
+
+    let content = match options.format {
         // JSONL 格式（与 qq-data-exporter 兼容）
         "jsonl" => {
             let mut s = String::new();
@@ -638,14 +964,13 @@ pub fn export(
         }
     };
 
-    if let Some(path) = output {
+    if let Some(path) = options.output {
         std::fs::write(path, &content)?;
         println!("已导出到: {}", path);
     } else {
         println!("{}", content);
     }
 
-    let _ = json_flag;
     Ok(())
 }
 
@@ -656,11 +981,24 @@ pub fn bundle_media(
     until: Option<&str>,
     limit: usize,
     output: &str,
+    json_flag: bool,
+    consent_external_disclosure: bool,
 ) -> Result<()> {
     use crate::segment::Segment;
     use md5;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
+
+    let consent = disclosure_consent_for(
+        output,
+        "ZIP 媒体包",
+        "qq bundle <会话> --consent-external-disclosure",
+    );
+    let authorized =
+        consent_external_disclosure || (!json_flag && request_disclosure_consent(&consent)?);
+    if !authorized {
+        return disclosure_required_error(&consent, json_flag);
+    }
 
     let since_ts = since.and_then(|s| db::parse_ts(s).ok());
     let until_ts = until.and_then(|s| db::parse_ts(s).ok());
@@ -955,8 +1293,24 @@ pub async fn groups(url: &str, token: Option<&str>) -> Result<()> {
 }
 
 /// 从 NapCat 同步联系人到本地缓存
-pub async fn sync(url: &str, token: Option<&str>) -> Result<()> {
+pub async fn sync(
+    url: &str,
+    token: Option<&str>,
+    json_flag: bool,
+    consent_external_disclosure: bool,
+) -> Result<()> {
     use crate::napcat::NapcatClient;
+
+    let consent = disclosure_consent_for(
+        "contacts.json",
+        "JSON 联系人缓存",
+        "qq sync --consent-external-disclosure",
+    );
+    let authorized =
+        consent_external_disclosure || (!json_flag && request_disclosure_consent(&consent)?);
+    if !authorized {
+        return disclosure_required_error(&consent, json_flag);
+    }
 
     println!("正在连接 NapCat: {}", url);
     let client = NapcatClient::connect(url, token).await?;

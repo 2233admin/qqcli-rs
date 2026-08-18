@@ -4,6 +4,7 @@ use crate::cache::ContactCache;
 use crate::db;
 use anyhow::{Context, Result};
 use duckdb::{params, Connection};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 use crate::schema::{C2C_PEER_ID, CONTENT, GROUP_NAME, MSG_ID, TIMESTAMP};
@@ -380,7 +381,7 @@ mod fts_tests {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 #[allow(dead_code)]
 pub struct SearchResult {
     pub msg_id: i64,

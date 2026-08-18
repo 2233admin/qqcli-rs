@@ -40,6 +40,10 @@ pub fn raw_db_candidates() -> Vec<PathBuf> {
         }
     }
 
+    discover_raw_db_candidates()
+}
+
+fn discover_raw_db_candidates() -> Vec<PathBuf> {
     let Some(docs) = dirs::document_dir() else {
         return vec![];
     };
@@ -79,7 +83,13 @@ pub fn select_raw_db_path(account: Option<&str>, explicit_path: Option<&Path>) -
         anyhow::bail!("指定的数据库不存在或不是文件: {}", path.display());
     }
 
-    let mut candidates = raw_db_candidates();
+    let mut candidates = if account.is_some() && explicit_path.is_none() {
+        // An explicit account choice must be able to switch away from the
+        // previously saved account; do not let the saved path hide siblings.
+        discover_raw_db_candidates()
+    } else {
+        raw_db_candidates()
+    };
     if let Some(account) = account {
         candidates.retain(|path| account_from_db_path(path).as_deref() == Some(account));
     }
@@ -148,6 +158,65 @@ pub fn decrypted_db_path(raw_db: &Path) -> PathBuf {
         .join("nt_msg_decrypted.db")
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct DecryptedBinding {
+    source_path: String,
+    source_size: u64,
+    source_modified_secs: Option<u64>,
+    account: Option<String>,
+}
+
+pub fn decrypted_binding_path(decrypted: &Path) -> PathBuf {
+    decrypted.with_file_name("nt_msg_decrypted.binding.json")
+}
+
+fn source_fingerprint(raw_db: &Path) -> Result<(String, u64, Option<u64>)> {
+    let metadata = std::fs::metadata(raw_db)
+        .with_context(|| format!("读取原始数据库元数据失败: {}", raw_db.display()))?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs());
+    let canonical = std::fs::canonicalize(raw_db).unwrap_or_else(|_| raw_db.to_path_buf());
+    Ok((
+        canonical.to_string_lossy().into_owned(),
+        metadata.len(),
+        modified,
+    ))
+}
+
+pub fn write_decrypted_binding(raw_db: &Path, decrypted: &Path) -> Result<()> {
+    let (source_path, source_size, source_modified_secs) = source_fingerprint(raw_db)?;
+    let binding = DecryptedBinding {
+        source_path,
+        source_size,
+        source_modified_secs,
+        account: account_from_db_path(raw_db),
+    };
+    let path = decrypted_binding_path(decrypted);
+    let text = serde_json::to_string_pretty(&binding)?;
+    std::fs::write(&path, text)
+        .with_context(|| format!("保存数据库绑定信息失败: {}", path.display()))
+}
+
+pub fn decrypted_copy_is_current(raw_db: &Path, decrypted: &Path) -> bool {
+    let path = decrypted_binding_path(decrypted);
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(binding) = serde_json::from_str::<DecryptedBinding>(&text) else {
+        return false;
+    };
+    let Ok((source_path, source_size, source_modified_secs)) = source_fingerprint(raw_db) else {
+        return false;
+    };
+    binding.source_path == source_path
+        && binding.source_size == source_size
+        && binding.source_modified_secs == source_modified_secs
+        && binding.account == account_from_db_path(raw_db)
+}
+
 pub fn detect_db_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("QQCLI_DB_PATH") {
         let path = PathBuf::from(path);
@@ -160,7 +229,7 @@ pub fn detect_db_path() -> Result<PathBuf> {
     match select_raw_db_path(None, None) {
         Ok(raw_db) => {
             let decrypted = decrypted_db_path(&raw_db);
-            if decrypted.exists() {
+            if decrypted.exists() && decrypted_copy_is_current(&raw_db, &decrypted) {
                 Ok(decrypted)
             } else {
                 Ok(raw_db)
@@ -203,7 +272,10 @@ fn walkdir(base: &Path) -> Result<Vec<PathBuf>> {
 
 #[cfg(test)]
 mod path_tests {
-    use super::{account_from_db_path, select_raw_db_path};
+    use super::{
+        account_from_db_path, decrypted_copy_is_current, select_raw_db_path,
+        write_decrypted_binding,
+    };
     use std::fs;
     use std::path::PathBuf;
 
@@ -228,6 +300,24 @@ mod path_tests {
         assert_eq!(account_from_db_path(&selected).as_deref(), Some("10001"));
 
         let root = std::env::temp_dir().join(format!("qqcli-db-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn decrypted_copy_binding_detects_source_changes() {
+        let root = std::env::temp_dir().join(format!("qqcli-binding-test-{}", std::process::id()));
+        let raw = root.join("nt_msg.db");
+        let decrypted = root.join("nt_msg_decrypted.db");
+        fs::create_dir_all(&root).expect("create binding directory");
+        fs::write(&raw, b"source").expect("write source");
+        fs::write(&decrypted, b"readable").expect("write readable copy");
+
+        write_decrypted_binding(&raw, &decrypted).expect("write binding");
+        assert!(decrypted_copy_is_current(&raw, &decrypted));
+
+        fs::write(&raw, b"source changed").expect("change source");
+        assert!(!decrypted_copy_is_current(&raw, &decrypted));
+
         let _ = fs::remove_dir_all(root);
     }
 }
