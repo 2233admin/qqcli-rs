@@ -4,11 +4,11 @@ version = "0.3.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["Curry"]
-description = "QQ 本地数据 CLI — 读取聊天记录、搜索、统计、导出"
+description = "Windows QQ NT chat history search, export, and backup CLI"
 license = "MIT"
 repository = "https://github.com/2233admin/qqcli-rs"
 homepage = "https://github.com/2233admin/qqcli-rs"
-keywords = ["qq", "cli", "chat-export", "backup", "search"]
+keywords = ["qq", "chat-history", "chat-export", "windows", "cli"]
 categories = ["command-line-utilities", "database"]
 
 [[bin]]

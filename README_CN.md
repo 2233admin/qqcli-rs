@@ -1,198 +1,181 @@
-# qqcli
+# qqcli — Windows QQ 聊天记录搜索与导出 CLI
 
 <p align="center">
-  <img src="docs/header.gif" alt="qqcli" width="720">
+  <img src="docs/header.gif" alt="qqcli Windows QQ 聊天记录命令行工具" width="720">
 </p>
 
 <p align="center">
-
-  <a href="https://github.com/2233admin/qqcli-rs/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/2233admin/qqcli-rs/CI.yml?style=flat-square&logo=github-actions&label=CI" alt="CI">
-  </a>
-  <a href="https://github.com/2233admin/qqcli-rs/releases">
-    <img src="https://img.shields.io/github/downloads/2233admin/qqcli-rs/total?style=flat-square&logo=github&label=下载量" alt="Downloads">
-  </a>
-  <a href="https://crates.io/crates/qqcli">
-    <img src="https://img.shields.io/crates/v/qqcli?style=flat-square&logo=rust&label=Crates.io" alt="Crates.io">
-  </a>
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=flat-square" alt="Platform">
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
-  </a>
-
+  <strong>不打开 QQ、不翻聊天记录，直接搜索本机 QQ NT 聊天数据。</strong><br>
+  面向 Windows 用户和 AI Agent 的 Rust 命令行工具：解密、导出和外发数据都会先获得明确的一次性授权。
 </p>
 
 <p align="center">
+  <a href="https://github.com/2233admin/qqcli-rs/releases/latest"><img src="https://img.shields.io/github/v/release/2233admin/qqcli-rs?style=flat-square&logo=github&label=最新版本" alt="最新版本"></a>
+  <a href="https://github.com/2233admin/qqcli-rs/actions"><img src="https://img.shields.io/github/actions/workflow/status/2233admin/qqcli-rs/CI.yml?style=flat-square&logo=github-actions&label=CI" alt="CI"></a>
+  <a href="https://github.com/2233admin/qqcli-rs/releases"><img src="https://img.shields.io/github/downloads/2233admin/qqcli-rs/total?style=flat-square&logo=github&label=下载量" alt="下载量"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Windows 平台">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT 许可证"></a>
+</p>
 
+<p align="center">
   <a href="README.md"><strong>English</strong></a>
   &nbsp;·&nbsp;
   <a href="README_CN.md"><strong>简体中文</strong></a>
-
 </p>
 
----
+## 立即下载
 
-## 故事
-
-> *三年的困扰。三次翻聊天记录找一条消息。*
-
-```
-2019 │ 找一个朋友发过的地址
-     │ 打开QQ → 翻 → 翻 → 翻 → 忘了是哪年的 → 放弃
-     │
-2020 │ 找一个群里分享过的文件
-     │ 打开QQ → 翻 → 翻 → 翻 → 不记得文件名 → 放弃
-     │
-2021 │ 找一条重要的工作消息
-     │ 打开QQ → 翻 → 翻 → 翻 → 不是这个群 → 放弃
-```
-
-第三次之后，我写了这个工具。
-
-现在：
-```bash
-qq search "关键词"     # 0.3秒。不开QQ。不翻记录。
-```
-
----
-
-## 功能
-
-| 命令 | 说明 |
+| 需求 | 入口 |
 |------|------|
-| `qq sessions` | 列出最近会话 |
-| `qq init` | 选择账号、检查数据库状态并给出下一步 |
-| `qq doctor` | 检查解密所需工具和本机配置 |
-| `qq version --json` | 输出已安装版本和平台 |
-| `qq history <id>` | 查看聊天记录（带时间戳） |
-| `qq history <id> --since 2024-01-01` | 按日期过滤 |
-| `qq index` | 建立全文搜索索引 |
-| `qq search "关键词"` | 搜索所有消息 |
-| `qq export <id> -o chat.md` | 导出为 Markdown |
-| `qq export <id> --format jsonl` | 导出为 JSONL |
-| `qq bundle <id> -o images.zip` | 下载所有图片 |
-| `qq plugin send <id> "消息"` | 通过 NapCat 发送消息 |
+| Windows 安装包 | [下载最新 Release](https://github.com/2233admin/qqcli-rs/releases/latest) |
+| 完整性校验 | 解压前使用 `SHA256SUMS.txt` 校验 ZIP |
+| Agent 接入 | 从 [`qq --json init`](#agent-自动化) 开始 |
+| 源码和问题反馈 | [GitHub 仓库](https://github.com/2233admin/qqcli-rs) |
 
----
+## qqcli 是什么？
+
+`qqcli` 是一个面向 Windows 的本地命令行工具，用于 **QQ 聊天记录搜索、QQ NT 本地数据库访问、聊天记录导出和备份**。它读取本机 QQ NT 数据目录，建立全文索引，帮助你搜索消息、查看会话，并把用户明确选择的会话导出为 Markdown 或 JSONL。
+
+当前发布版支持 **Windows 和 QQ NT 本地数据**。电脑上需要至少运行过一次 QQ。Linux 和 macOS 目前不是受支持的安装目标。
+
+适合这些场景：
+
+- 几秒内找回以前发过的地址、文件名或工作消息；
+- 在 PowerShell 或 AI Agent 中搜索本地 QQ 聊天记录；
+- 把指定会话导出，用于用户确认后的备份或分析；
+- 诊断 QQ 数据库找不到、加密或配置失败的问题，同时不暴露密钥和消息正文。
+
+## 核心能力
+
+| 能力 | 说明 |
+|------|------|
+| 本地全文搜索 | 建立索引后搜索 QQ 消息，不需要打开 QQ 或手动翻页。 |
+| QQ NT 支持 | 识别 QQ NT 本地数据库目录，包括 `nt_qq\\nt_db\\nt_msg.db`。 |
+| Agent 可用 | 提供 JSON 输出、稳定退出码、脱敏诊断报告和 `next_command` 修复指引。 |
+| 按动作授权 | 解密和外发是不同动作，分别需要明确的一次性授权。 |
+| 本地优先 | 读取和搜索留在本机；导出、打包、同步不会静默执行。 |
+| Windows 安装 | Release ZIP 包含安装器、版本清单和必需的 `duckdb.dll`。 |
 
 ## 快速开始
 
 ### Windows 安装
 
-1. 从 [Releases](https://github.com/2233admin/qqcli-rs/releases) 下载 `qqcli-*-windows-x86_64.zip`。
-2. 解压后双击 `install.cmd`。
-3. 重新打开 PowerShell，运行：
+1. 从 [Releases](https://github.com/2233admin/qqcli-rs/releases/latest) 下载 Windows ZIP；
+2. 使用其中的 `SHA256SUMS.txt` 校验 ZIP；
+3. 解压后运行 `install.cmd`；
+4. 重新打开 PowerShell，运行：
 
 ```powershell
 qq init
 ```
 
-`qq init` 会先确认是否真的需要解密，再展示一次性授权说明：
+`qq init` 会发现可用账号并检查本地数据库。如果需要解密，它会先解释本次需要访问的本机资源，再请求一次性授权，不会静默解密。
 
-- 只有一个账号时会自动绑定；
-- 多个账号时按提示执行 `qq init --account <QQ号>`；
-- QQ 使用自定义数据目录时执行 `qq init --db-path <nt_msg.db 路径>`；
-- 数据库加密且依赖已就绪时，交互终端输入“同意”即可继续；工具会说明它将读取的本机资源、保存位置和不会做的事；
-- Agent 必须先向用户展示 JSON 中的 `consent` 内容，得到同意后才执行 `qq init --consent-decrypt`；授权只用于这一次操作，不会被永久保存；
-- 解密工具未就绪时，先运行 `qq doctor`，按下一步提示配置。
-
-### Agent / 自动化
-
-所有初始化状态都能以 JSON 获取：
+### 搜索本地 QQ 聊天记录
 
 ```powershell
-qq --json init
-```
-
-- 退出码 `0`：数据库可用；
-- 退出码 `2`：必须把 JSON 授权范围展示给用户并等待明确同意；
-- 退出码 `3`：需要选择账号、设置路径或修复配置；JSON 的 `next_command` 给出下一步；
-- `status: "consent_required"` 时，Agent 必须把 `consent.scope` 原样告知用户；只有用户同意后，才能执行 `consent.command_after_user_agrees`；
-- Agent 可通过 `QQCLI_DB_PATH` 传入数据库路径，通过 `QQCLI_DB_KEY` 临时传入密钥；后者不会写入磁盘。
-
-### 使用
-
-```bash
-# 查看最近会话
 qq sessions
-
-# 搜索全部记录
-qq index && qq search "会议"
-
-# 导出会话
-qq --json export 123456789 -o chat.md
-# 用户确认准确的目标和格式后：
-qq export 123456789 -o chat.md --consent-external-disclosure
+qq index
+qq search "会议"
+qq history <会话ID> --since 2024-01-01
 ```
 
-`export`、`bundle` 和 `sync` 都属于 External Disclosure。Agent/JSON 模式没有新的明确授权时不会执行。`history`、`search`、`sessions` 是本地 Read Access，不会自动获得导出权限。
+### 导出指定会话
 
-升级时先用 `SHA256SUMS.txt` 校验 ZIP，再解压并重新运行安装器。安装器会校验 `VERSION.txt`、`qq.exe --version`，并把必需的 `duckdb.dll` 一起安装到可执行文件旁边。目前尚未提供代码签名，必须先做 SHA-256 校验。
+导出属于独立的 **External Disclosure（外部披露）** 动作。先向用户确认准确的会话、目标路径和格式，再执行：
 
----
-
-## 技术栈
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         qqcli                              │
-├─────────────────────────────────────────────────────────────┤
-│  Rust · rusqlite · DuckDB · tokio · clap                   │
-├─────────────────────────────────────────────────────────────┤
-│  QQ NT 本地数据库: 文档\Tencent Files\{QQ号}\                 │
-│                      nt_qq\nt_db\nt_msg.db                 │
-└─────────────────────────────────────────────────────────────┘
+```powershell
+qq --json export <会话ID> -o chat.md
+qq export <会话ID> -o chat.md --consent-external-disclosure
 ```
 
----
+`bundle` 和 `sync` 使用相同的授权边界。`sessions`、`history`、`search` 属于 **Read Access（读取）**，不会自动获得导出权限。
+
+## Agent / 自动化
+
+Agent 合约的目标是：先解释需求，再等待授权，失败时给出可执行的修复命令，不靠猜测绕过用户决定。
+
+```powershell
+# 查看版本和平台
+qq --json version
+
+# 发现账号和数据库状态
+qq --json init
+
+# 只有用户明确同意返回的授权范围后才能执行
+qq --json init --consent-decrypt
+```
+
+稳定结果：
+
+- 退出码 `0`：操作完成；
+- 退出码 `2`：需要授权，展示返回的 `consent` 后等待用户同意；
+- 退出码 `3`：需要配置或修复，按 `next_command` 执行，或运行 `qq doctor --json`。
+
+Agent 可以通过环境变量临时提供 `QQCLI_DB_PATH` 和 `QQCLI_DB_KEY`。密钥不会打印，也不会以明文保存。Agent 不得伪造同意、跳过授权步骤，或把读取动作升级为导出动作。
+
+## 命令速查
+
+| 命令 | 用途 |
+|------|------|
+| `qq init` | 发现账号、检查 QQ NT 数据；仅在需要解密时请求授权 |
+| `qq doctor` | 输出脱敏诊断报告和修复指引 |
+| `qq version --json` | 为自动化输出版本和平台 |
+| `qq sessions` | 列出最近会话 |
+| `qq history <id>` | 查看带时间戳的聊天记录 |
+| `qq index` | 建立全文搜索索引 |
+| `qq search "关键词"` | 搜索本地 QQ 消息 |
+| `qq export <id>` | 将用户确认的会话导出为 Markdown 或 JSONL |
+| `qq bundle <id>` | 打包用户确认的媒体文件 |
+| `qq sync` | 获得独立外部披露授权后再同步 |
+| `qq plugin send <id> "消息"` | 可选的 NapCat 发消息集成 |
+
+## 安全边界
+
+qqcli 把操作分为三类，让 Agent 和用户清楚知道即将发生什么：
+
+1. **Read Access（读取）**：检查、索引和搜索本地数据；
+2. **Decryption Action（解密）**：配置本地解密工具后，获得一次性明确授权才能执行；
+3. **External Disclosure（外部披露）**：把选中的数据写到读取路径之外或同步出去，必须再次明确授权。
+
+诊断报告会脱敏用户路径，不包含解密密钥、消息正文或进程内存。安装器会检查 Release 版本和运行时文件。目前还没有代码签名，安装或升级前必须先校验 SHA-256。
 
 ## 常见问题
 
-**Q: 找不到数据库？**
-> 确保 QQ NT 至少运行过一次。
+**找不到数据库怎么办？**<br>
+先运行一次 QQ NT，再运行 `qq init`。如果数据库不在默认位置，可使用 `qq config set-db-path "D:\\QQ\\nt_msg.db"`，或用 `QQCLI_DB_PATH` 指定单次路径。
 
-**Q: 数据库加密了？**
-> 先运行 `qq doctor`。如未配置工具，请从 [qq-nt-decrypt](https://github.com/MrXiaoM/qq-nt-decrypt) 获取密钥提取脚本，并准备 SQLCipher：
->
-> ```powershell
-> qq config set-key-script <windows_ntqq_get_key.ps1 路径>
-> qq config set-sqlcipher <sqlcipher.exe 路径>
-> qq init --consent-decrypt
-> ```
->
-> 解密密钥会使用 Windows DPAPI 保护；不会打印到终端，也不会以明文写入配置文件。
+**数据库加密了，qqcli 会自动解密吗？**<br>
+不会。先运行 `qq doctor`，配置本地解密工具和 SQLCipher，阅读授权范围并明确同意，再运行 `qq init --consent-decrypt`。保存的密钥使用 Windows DPAPI 保护，不会打印。
 
-**Q: 搜索很慢？**
-> 先运行 `qq index` 建立搜索索引。
+**为什么 Agent 停在退出码 2？**<br>
+这是安全授权暂停。Agent 必须把返回的授权范围展示给用户，得到明确同意后才能执行工具提供的命令。
 
-**Q: 数据库在哪？**
-> 默认位置：`文档\Tencent Files\{QQ号}\nt_qq\nt_db\nt_msg.db`
->
-> 自定义路径：
-> - 推荐一次性保存：`qq config set-db-path "D:\QQ\nt_msg.db"`
-> - 单次 PowerShell：`$env:QQCLI_DB_PATH = "D:\QQ\nt_msg.db"`
+**Linux 或 macOS 能用吗？**<br>
+当前发布包和 QQ NT 解密流程仅支持 Windows。
 
-**Q: Linux/macOS 能直接使用吗？**
-> 当前发布包和 QQ NT 解密流程仅支持 Windows。Linux/macOS 需要自行提供兼容的本地数据库与解密工具，暂不作为受支持的安装目标。
+## 它解决的问题
 
----
+> 三年的困扰，三次翻聊天记录寻找明明记得发过的内容。
+
+```text
+打开 QQ → 翻 → 翻 → 找错年份 → 放弃
+
+qq search "关键词"     # 本地搜索，不再翻页
+```
+
+## 技术栈
+
+Rust · rusqlite · DuckDB · tokio · clap · SQLCipher 兼容解密流程
 
 ## 参与贡献
 
-欢迎提交 PR！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+欢迎提交 PR。开发说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。如果工具找不到数据库，提交脱敏后的 `qq doctor --json` 报告会更容易定位问题。
 
 ## License
 
 MIT
 
----
-
 <p align="center">
-
-[![Star History](https://api.star-history.com/svg?repos=2233admin/qqcli-rs&type=Date)](https://star-history.com/#2233admin/qqcli-rs&Date)
-
-</p>
-
-<p align="center">
-  <em>省下滚动的时间，可以用来做点别的。</em>
+  <a href="https://star-history.com/#2233admin/qqcli-rs&Date"><img src="https://api.star-history.com/svg?repos=2233admin/qqcli-rs&type=Date" alt="qqcli Star 历史"></a>
 </p>
