@@ -29,6 +29,7 @@
 |------|------|
 | Windows installer ZIP | [Download the latest release](https://github.com/2233admin/qqcli-rs/releases/latest) |
 | Integrity check | Verify `SHA256SUMS.txt` before extracting |
+| Step-by-step guide | [Read the Windows QQ chat history guide](docs/guide/windows-qq-chat-history-search.md) |
 | Agent integration | Start with [`qq --json init`](#agent-and-automation) |
 | Source and issues | [GitHub repository](https://github.com/2233admin/qqcli-rs) |
 

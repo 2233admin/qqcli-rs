@@ -29,6 +29,7 @@
 |------|------|
 | Windows 安装包 | [下载最新 Release](https://github.com/2233admin/qqcli-rs/releases/latest) |
 | 完整性校验 | 解压前使用 `SHA256SUMS.txt` 校验 ZIP |
+| 使用教程 | [阅读 Windows QQ 聊天记录搜索教程](docs/guide/windows-qq-chat-history-search.md) |
 | Agent 接入 | 从 [`qq --json init`](#agent-自动化) 开始 |
 | 源码和问题反馈 | [GitHub 仓库](https://github.com/2233admin/qqcli-rs) |
 

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-labelledby="title desc">
+  <title id="title">qqcli Windows QQ NT consent flow terminal screenshot</title>
+  <desc id="desc">Redacted output from qqcli version and init in JSON mode. The init command pauses for explicit decryption consent and returns exit code 2.</desc>
+  <rect width="1120" height="720" rx="18" fill="#0d1117"/>
+  <rect width="1120" height="54" rx="18" fill="#161b22"/>
+  <rect y="36" width="1120" height="18" fill="#161b22"/>
+  <circle cx="28" cy="27" r="7" fill="#ff5f56"/>
+  <circle cx="52" cy="27" r="7" fill="#ffbd2e"/>
+  <circle cx="76" cy="27" r="7" fill="#27c93f"/>
+  <text x="106" y="33" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="16">PowerShell — qqcli v0.3.0</text>
+  <g fill="#e6edf3" font-family="Cascadia Mono, Consolas, monospace" font-size="16">
+    <text x="28" y="90" fill="#7ee787">PS C:\\Tools&gt;</text><text x="164" y="90">qq --json version</text>
+    <text x="28" y="120">{</text>
+    <text x="48" y="147">"status": "ok",</text>
+    <text x="48" y="174">"version": "0.3.0",</text>
+    <text x="48" y="201">"platform": "windows",</text>
+    <text x="48" y="228">"next_command": "qq doctor"</text>
+    <text x="28" y="255">}</text>
+    <text x="28" y="302" fill="#7ee787">PS C:\\Tools&gt;</text><text x="164" y="302">qq --json init</text>
+    <text x="28" y="332">{</text>
+    <text x="48" y="359" fill="#ff7b72">"status": "consent_required",</text>
+    <text x="48" y="386">"message": "Encrypted database; user authorization is required.",</text>
+    <text x="48" y="413">"db_path": "&lt;redacted&gt;\\nt_qq\\nt_db\\nt_msg.db",</text>
+    <text x="48" y="440">"account": "&lt;redacted&gt;",</text>
+    <text x="48" y="467">"consent": {</text>
+    <text x="68" y="494">"required": true,</text>
+    <text x="68" y="521">"action": "Read local QQ key and create a readable copy",</text>
+    <text x="68" y="548">"scope": ["local process memory", "local tools", "local AppData"],</text>
+    <text x="68" y="575">"command_after_user_agrees": "qq init --consent-decrypt"</text>
+    <text x="48" y="602">}</text>
+    <text x="28" y="629">}</text>
+    <text x="28" y="676" fill="#ffbd2e">Exit code 2 — consent required; no decryption was performed.</text>
+  </g>
+</svg>
