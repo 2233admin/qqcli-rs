@@ -10,12 +10,12 @@ use crate::napcat::models::{
     FriendInfo, GroupInfo, JsonRpcRequest, LoginInfo, MessageEvent, MessageInfo, SendResult,
     VersionInfo,
 };
-use anyhow::{Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::{Mutex, mpsc, oneshot};
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 static NEXT_ECHO: AtomicU64 = AtomicU64::new(1);

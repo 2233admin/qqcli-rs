@@ -61,6 +61,8 @@ qq search "keyword"     # 0.3 seconds. No QQ. No scrolling.
 | Command | Description |
 |---------|-------------|
 | `qq sessions` | List recent chat sessions |
+| `qq init` | Select an account, inspect the database, and show the next action |
+| `qq doctor` | Check local decryption tools and configuration |
 | `qq history <id>` | View chat history with timestamps |
 | `qq history <id> --since 2024-01-01` | Filter by date range |
 | `qq index` | Build full-text search index |
@@ -74,12 +76,15 @@ qq search "keyword"     # 0.3 seconds. No QQ. No scrolling.
 
 ## Quick Start
 
-### Download
+### Windows install
 
-| Platform | Download |
-|----------|----------|
-| Windows | Download `qq.exe` from [Releases](https://github.com/2233admin/qqcli-rs/releases) |
-| Linux/macOS | Download `qqcli` binary |
+1. Download `qqcli-*-windows-x86_64.zip` from [Releases](https://github.com/2233admin/qqcli-rs/releases).
+2. Extract it and run `install.cmd`.
+3. Open a new PowerShell window and run `qq init`.
+
+`qq init` only inspects by default. It will never start QQ or decrypt data unless you explicitly run `qq init --decrypt`.
+
+For automation, use `qq --json init`. A non-zero exit code means that the JSON `next_command` must be handled. `QQCLI_DB_PATH` and `QQCLI_DB_KEY` can be supplied by the agent without persisting the key.
 
 ### Run
 
@@ -117,7 +122,7 @@ qq export 123456789 -o chat.md
 > Make sure QQ NT has been run at least once.
 
 **Q: Database encrypted?**
-> Use [qq-nt-decrypt](https://github.com/MrXiaoM/qq-nt-decrypt) to decrypt.
+> Run `qq doctor`, configure the key-extraction script and SQLCipher if needed, then run `qq init --decrypt`. Saved keys are protected with Windows DPAPI and are never printed.
 
 **Q: Search is slow?**
 > Run `qq index` first to build the search index.
@@ -125,7 +130,12 @@ qq export 123456789 -o chat.md
 **Q: Where is the database?**
 > Default location: `Documents\Tencent Files\{QQ}\nt_qq\nt_db\nt_msg.db`
 >
-> Custom path: `export QQCLI_DB_PATH=/path/to/nt_msg.db`
+> Preferred persistent path: `qq config set-db-path "D:\QQ\nt_msg.db"`
+>
+> One-off PowerShell path: `$env:QQCLI_DB_PATH = "D:\QQ\nt_msg.db"`
+
+**Q: Is Linux/macOS supported?**
+> The released installer and QQ NT decryption flow currently support Windows only.
 
 ---
 

@@ -129,7 +129,9 @@ pub fn inline_token(seg: &Segment) -> Option<String> {
             ..
         } => Some(format!("[reply:{}]", original_content_preview)),
         Segment::At {
-            target_name, target_id, ..
+            target_name,
+            target_id,
+            ..
         } => Some(format!(
             "@{}",
             target_name.as_deref().unwrap_or(target_id.as_str())
@@ -258,9 +260,7 @@ mod tests {
     #[test]
     fn primary_label_and_inline_token() {
         let msgs = vec![
-            Segment::Text {
-                text: "hi".into(),
-            },
+            Segment::Text { text: "hi".into() },
             Segment::Image {
                 url: None,
                 fileid: None,

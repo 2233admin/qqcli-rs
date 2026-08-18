@@ -19,8 +19,9 @@ mod uid_resolve;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::{Shell, generate};
+use clap_complete::{generate, Shell};
 use std::io;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -33,7 +34,7 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// 输出 JSON 格式 (默认 YAML)
+    /// 输出 JSON 格式（默认人类可读文本）
     #[arg(long, global = true)]
     json: bool,
 }
@@ -42,15 +43,32 @@ struct Cli {
 enum Commands {
     /// 初始化: 检测 DB 路径, 确认解密状态
     Init {
-        /// 强制重新扫描
-        #[arg(long)]
-        force: bool,
+        /// 选择 QQ 账号（多账号时必填）
+        #[arg(long, value_name = "QQ号", conflicts_with = "db_path")]
+        account: Option<String>,
+        /// 直接指定 nt_msg.db 路径，并保存为当前默认数据库
+        #[arg(long, value_name = "PATH", conflicts_with = "account")]
+        db_path: Option<PathBuf>,
+        /// 明确同意提取密钥并解密；默认只检查状态
+        #[arg(long, visible_alias = "force")]
+        decrypt: bool,
     },
 
+    /// 查看或修改本机 qqcli 配置（不会显示密钥）
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+
+    /// 检查数据库、解密依赖与配置是否可用
+    Doctor {},
+
     /// 调试: 查看表结构
+    #[command(hide = true)]
     DebugTables {},
 
     /// 调试: 探测消息 BLOB 原始字节
+    #[command(hide = true)]
     DebugProbe {},
 
     /// 最近会话列表
@@ -240,6 +258,20 @@ enum Commands {
     },
 }
 
+#[derive(Subcommand)]
+enum ConfigCommands {
+    /// 显示已选择的数据库和密钥保护状态
+    Show,
+    /// 保存数据库路径
+    SetDbPath { path: PathBuf },
+    /// 保存 sqlcipher.exe 路径
+    SetSqlcipher { path: PathBuf },
+    /// 保存 QQ NT 密钥提取脚本路径
+    SetKeyScript { path: PathBuf },
+    /// 清除已保存的数据库路径
+    ClearDbPath,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -249,7 +281,21 @@ fn main() -> Result<()> {
     }
 
     match &cli.command {
-        Commands::Init { force } => commands::init(*force),
+        Commands::Init {
+            account,
+            db_path,
+            decrypt,
+        } => commands::init(account.as_deref(), db_path.as_deref(), *decrypt, cli.json),
+        Commands::Config { command } => match command {
+            ConfigCommands::Show => commands::config_show(cli.json),
+            ConfigCommands::SetDbPath { path } => commands::config_set_db_path(path, cli.json),
+            ConfigCommands::SetSqlcipher { path } => commands::config_set_sqlcipher(path, cli.json),
+            ConfigCommands::SetKeyScript { path } => {
+                commands::config_set_key_script(path, cli.json)
+            }
+            ConfigCommands::ClearDbPath => commands::config_clear_db_path(cli.json),
+        },
+        Commands::Doctor {} => commands::doctor(cli.json),
         Commands::DebugTables {} => commands::debug_tables(),
         Commands::DebugProbe {} => commands::debug_probe(),
         Commands::Sessions { limit } => commands::sessions(*limit, cli.json),

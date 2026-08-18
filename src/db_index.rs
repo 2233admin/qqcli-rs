@@ -3,7 +3,7 @@
 use crate::cache::ContactCache;
 use crate::db;
 use anyhow::{Context, Result};
-use duckdb::{Connection, params};
+use duckdb::{params, Connection};
 use std::path::{Path, PathBuf};
 
 use crate::schema::{C2C_PEER_ID, CONTENT, GROUP_NAME, MSG_ID, TIMESTAMP};
@@ -332,10 +332,7 @@ mod fts_tests {
     /// failure mode.
     #[test]
     fn search_fts_errors_when_no_fts_index() {
-        let tmp = env::temp_dir().join(format!(
-            "qqcli_no_fts_{}.duckdb",
-            std::process::id()
-        ));
+        let tmp = env::temp_dir().join(format!("qqcli_no_fts_{}.duckdb", std::process::id()));
         if tmp.exists() {
             let _ = std::fs::remove_file(&tmp);
         }
@@ -356,7 +353,11 @@ mod fts_tests {
         .expect("create + insert");
 
         let r = search_fts(&conn, "fallback", None, 10);
-        assert!(r.is_err(), "search_fts should error when no FTS index exists, got {:?}", r.is_ok());
+        assert!(
+            r.is_err(),
+            "search_fts should error when no FTS index exists, got {:?}",
+            r.is_ok()
+        );
 
         let _ = std::fs::remove_file(&tmp);
     }
@@ -367,10 +368,7 @@ mod fts_tests {
     /// to LIKE.
     #[test]
     fn init_db_does_not_panic_when_fts_unavailable() {
-        let tmp = env::temp_dir().join(format!(
-            "qqcli_init_{}.duckdb",
-            std::process::id()
-        ));
+        let tmp = env::temp_dir().join(format!("qqcli_init_{}.duckdb", std::process::id()));
         if tmp.exists() {
             let _ = std::fs::remove_file(&tmp);
         }

@@ -5,30 +5,120 @@
 use crate::segment::Segment;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone};
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 use crate::schema::{
     C2C_PEER_ID, C2C_SENDER_ID, C2C_SENDER_NAME, CONTENT, FLOW_UNREAD, GROUP_MEMBER_UID,
-    GROUP_NAME, GROUP_SENDER_ID, IS_SENDER_ME, MSG_ID, TIMESTAMP, UID_MAPPING_ENC,
-    UID_MAPPING_QQ,
+    GROUP_NAME, GROUP_SENDER_ID, IS_SENDER_ME, MSG_ID, TIMESTAMP, UID_MAPPING_ENC, UID_MAPPING_QQ,
 };
 
 pub fn default_db_path() -> PathBuf {
     dirs::document_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("Tencent Files")
-        .join("1497479966")
+        .join("{QQ号}")
         .join("nt_qq")
         .join("nt_db")
         .join("nt_msg.db")
 }
 
+/// 查找 QQ NT 的原始数据库。
+///
+/// QQ 号属于每台机器/每个用户自己的数据，不能写死在程序里。
+/// `QQCLI_DB_PATH` 适合多账号或 QQ 使用了自定义数据目录的情况；未配置时
+/// 扫描当前 Windows 用户文档目录下的所有 Tencent Files 子目录。
+pub fn raw_db_candidates() -> Vec<PathBuf> {
+    if let Ok(path) = std::env::var("QQCLI_DB_PATH") {
+        return vec![PathBuf::from(path)];
+    }
+
+    if let Ok(cfg) = crate::config::get_config() {
+        if let Some(path) = cfg.db_path {
+            return vec![path];
+        }
+    }
+
+    let Some(docs) = dirs::document_dir() else {
+        return vec![];
+    };
+    let base = docs.join("Tencent Files");
+    if !base.exists() {
+        return vec![];
+    }
+
+    let mut candidates = walkdir(&base)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|path| {
+            path.is_file() && path.file_name().and_then(|name| name.to_str()) == Some("nt_msg.db")
+        })
+        .collect::<Vec<_>>();
+
+    // read_dir 的顺序不保证稳定；多个 QQ 号时保证每次选择一致。
+    candidates.sort();
+    candidates
+}
+
+pub fn account_from_db_path(path: &Path) -> Option<String> {
+    path.ancestors()
+        .nth(3)
+        .and_then(|dir| dir.file_name())
+        .and_then(|name| name.to_str())
+        .filter(|uin| uin.chars().all(|c| c.is_ascii_digit()))
+        .map(str::to_string)
+}
+
+/// 选择一个原始数据库。单账号自动选择；多账号必须由调用方明确指定。
+pub fn select_raw_db_path(account: Option<&str>, explicit_path: Option<&Path>) -> Result<PathBuf> {
+    if let Some(path) = explicit_path {
+        if path.is_file() {
+            return Ok(path.to_path_buf());
+        }
+        anyhow::bail!("指定的数据库不存在或不是文件: {}", path.display());
+    }
+
+    let mut candidates = raw_db_candidates();
+    if let Some(account) = account {
+        candidates.retain(|path| account_from_db_path(path).as_deref() == Some(account));
+    }
+
+    match candidates.len() {
+        0 if account.is_some() => anyhow::bail!(
+            "未找到 QQ 账号 {} 的 nt_msg.db。可运行 qq init 查看可用账号。",
+            account.unwrap_or_default()
+        ),
+        0 => anyhow::bail!(
+            "找不到 nt_msg.db。请先运行并登录 QQ NT，或使用 qq init --db-path <路径>。"
+        ),
+        1 => {
+            let path = candidates.remove(0);
+            if path.is_file() {
+                Ok(path)
+            } else {
+                anyhow::bail!("配置的数据库不存在或不是文件: {}", path.display())
+            }
+        }
+        _ => {
+            let choices = candidates
+                .iter()
+                .filter_map(|path| account_from_db_path(path))
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "发现多个 QQ 账号: {}。请运行 qq init --account <QQ号>，或 qq init --db-path <路径>。",
+                choices
+            )
+        }
+    }
+}
+
 // ─── 数据模型 ──────────────────────────────────────────────
 
-pub fn default_decrypted_db_path() -> Option<PathBuf> {
-    // 优先使用 .archive 中的解密 DB（更大，包含更多历史消息）
+/// 兼容旧版本放在 Downloads\voile 下的解密缓存。
+/// 仅当找不到任何原始数据库时使用，避免多账号之间串用缓存。
+pub fn legacy_decrypted_db_path() -> Option<PathBuf> {
     if let Some(downloads) = dirs::download_dir() {
         let archived = downloads
             .join("voile")
@@ -41,6 +131,23 @@ pub fn default_decrypted_db_path() -> Option<PathBuf> {
     dirs::download_dir().map(|downloads| downloads.join("voile").join("nt_msg_decrypted.db"))
 }
 
+/// 解密数据库按账号（或原始路径哈希）隔离保存，避免多账号误读。
+pub fn decrypted_db_path(raw_db: &Path) -> PathBuf {
+    let identity = account_from_db_path(raw_db).unwrap_or_else(|| {
+        format!(
+            "custom-{:x}",
+            md5::compute(raw_db.to_string_lossy().as_bytes())
+        )
+    });
+    dirs::data_local_dir()
+        .or_else(dirs::cache_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("qqcli")
+        .join("decrypted")
+        .join(identity)
+        .join("nt_msg_decrypted.db")
+}
+
 pub fn detect_db_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("QQCLI_DB_PATH") {
         let path = PathBuf::from(path);
@@ -50,34 +157,28 @@ pub fn detect_db_path() -> Result<PathBuf> {
         anyhow::bail!("QQCLI_DB_PATH 指向的 DB 不存在: {}", path.display());
     }
 
-    if let Some(decrypted) = default_decrypted_db_path() {
-        if decrypted.exists() {
-            return Ok(decrypted);
-        }
-    }
-
-    let default = default_db_path();
-    if default.exists() {
-        return Ok(default);
-    }
-
-    if let Some(docs) = dirs::document_dir() {
-        let base = docs.join("Tencent Files");
-        if base.exists() {
-            if let Ok(entries) = walkdir(&base) {
-                for entry in entries {
-                    if entry.ends_with("nt_msg.db") {
-                        return Ok(entry);
-                    }
-                }
+    match select_raw_db_path(None, None) {
+        Ok(raw_db) => {
+            let decrypted = decrypted_db_path(&raw_db);
+            if decrypted.exists() {
+                Ok(decrypted)
+            } else {
+                Ok(raw_db)
             }
         }
+        Err(err) if raw_db_candidates().is_empty() => {
+            if let Some(decrypted) = legacy_decrypted_db_path() {
+                if decrypted.exists() {
+                    Ok(decrypted)
+                } else {
+                    Err(err)
+                }
+            } else {
+                Err(err)
+            }
+        }
+        Err(err) => Err(err),
     }
-
-    anyhow::bail!(
-        "找不到 nt_msg.db，请确认 QQ NT 已运行过\n默认路径: {}",
-        default.display()
-    );
 }
 
 fn walkdir(base: &Path) -> Result<Vec<PathBuf>> {
@@ -98,6 +199,37 @@ fn walkdir(base: &Path) -> Result<Vec<PathBuf>> {
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::{account_from_db_path, select_raw_db_path};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_db_path(account: &str) -> PathBuf {
+        std::env::temp_dir()
+            .join(format!("qqcli-db-test-{}", std::process::id()))
+            .join("Tencent Files")
+            .join(account)
+            .join("nt_qq")
+            .join("nt_db")
+            .join("nt_msg.db")
+    }
+
+    #[test]
+    fn explicit_database_path_is_selected() {
+        let path = temp_db_path("10001");
+        fs::create_dir_all(path.parent().expect("database parent")).expect("create test directory");
+        fs::write(&path, []).expect("create test database");
+
+        let selected = select_raw_db_path(None, Some(&path)).expect("select explicit database");
+        assert_eq!(selected, path);
+        assert_eq!(account_from_db_path(&selected).as_deref(), Some("10001"));
+
+        let root = std::env::temp_dir().join(format!("qqcli-db-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
 fn open_conn(path: &Path) -> Result<Connection> {
@@ -332,30 +464,32 @@ pub struct GroupMember {
 
 // ─── 公开 API ─────────────────────────────────────────────
 
-pub fn init_db() -> Result<PathBuf> {
-    let path = detect_db_path()?;
-    let conn = open_conn(&path)?;
+#[derive(Debug, Clone, Serialize)]
+pub struct DbSummary {
+    pub path: PathBuf,
+}
+
+pub fn validate_db(path: &Path) -> Result<DbSummary> {
+    let conn = open_conn(path)?;
 
     let has_c2c = conn
-        .query_row("SELECT COUNT(*) FROM c2c_msg_table", [], |_| Ok(()))
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'c2c_msg_table'",
+            [],
+            |_| Ok(()),
+        )
         .is_ok();
 
     if !has_c2c {
         anyhow::bail!("DB 格式不对，未找到 c2c_msg_table");
     }
 
-    let c2c_count: i64 = conn.query_row("SELECT COUNT(*) FROM c2c_msg_table", [], |r| r.get(0))?;
-    let group_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM dataline_msg_table", [], |r| r.get(0))?;
-
-    println!("数据目录: {}", path.display());
-    println!("私聊消息: {}", c2c_count);
-    println!("群聊消息: {}", group_count);
-
     // 加载 UID 映射
-    let _ = load_uid_mapping(&path);
+    let _ = load_uid_mapping(path);
 
-    Ok(path)
+    Ok(DbSummary {
+        path: path.to_path_buf(),
+    })
 }
 
 pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
@@ -377,8 +511,8 @@ pub fn list_sessions(limit: usize) -> Result<Vec<Session>> {
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0)?;
         let peer_id_str = peer_id.to_string();
-        let name = crate::uid_resolve::name_for_qq(peer_id)
-            .unwrap_or_else(|| format!("uid_{}", peer_id));
+        let name =
+            crate::uid_resolve::name_for_qq(peer_id).unwrap_or_else(|| format!("uid_{}", peer_id));
         Ok(Session {
             id: peer_id_str,
             name,
@@ -478,7 +612,13 @@ pub fn get_messages(
 
             let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
-            messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
+            messages.push(crate::message::build_message(
+                id,
+                sender_id,
+                &content_raw,
+                ts,
+                is_mine,
+            ));
         }
     } else {
         // 私聊 (c2c)
@@ -529,7 +669,13 @@ pub fn get_messages(
 
             let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
 
-            messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
+            messages.push(crate::message::build_message(
+                id,
+                sender_id,
+                &content_raw,
+                ts,
+                is_mine,
+            ));
         }
     }
 
@@ -588,7 +734,13 @@ pub fn search_messages(
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
                 let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
-                messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
+                messages.push(crate::message::build_message(
+                    id,
+                    sender_id,
+                    &content_raw,
+                    ts,
+                    is_mine,
+                ));
             }
 
             if messages.len() >= limit * 2 {
@@ -629,7 +781,13 @@ pub fn search_messages(
                 let ts: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
                 let is_mine: i64 = row.get::<_, Option<i64>>(5)?.unwrap_or(0);
                 let id: i64 = row.get::<_, Option<i64>>(0)?.unwrap_or(0);
-                messages.push(crate::message::build_message(id, sender_id, &content_raw, ts, is_mine));
+                messages.push(crate::message::build_message(
+                    id,
+                    sender_id,
+                    &content_raw,
+                    ts,
+                    is_mine,
+                ));
             }
 
             if messages.len() >= limit * 2 {
@@ -649,6 +807,19 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
     let conn = open_conn(&path)?;
     let mut contacts = Vec::new();
 
+    // 优先使用配置中的 QQ 号；未配置时从标准 NT 数据库路径推断。
+    let own_uin = crate::config::get_config()
+        .ok()
+        .and_then(|config| config.db_uin)
+        .and_then(|uin| uin.parse::<i64>().ok())
+        .or_else(|| {
+            path.ancestors()
+                .nth(3)
+                .and_then(|dir| dir.file_name())
+                .and_then(|name| name.to_str())
+                .and_then(|uin| uin.parse::<i64>().ok())
+        });
+
     // 确保 UID 映射已加载
     let _ = load_uid_mapping(&path);
 
@@ -657,9 +828,7 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
 
     if kind == "all" || kind == "friend" {
         // schema::C2C_PEER_ID = peer_id (数字 QQ), schema::GROUP_NAME = encrypted UID
-        let sql = format!(
-            "SELECT DISTINCT {C2C_PEER_ID}, {GROUP_NAME} FROM c2c_msg_table"
-        );
+        let sql = format!("SELECT DISTINCT {C2C_PEER_ID}, {GROUP_NAME} FROM c2c_msg_table");
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
@@ -670,8 +839,8 @@ pub fn list_contacts(query: Option<&str>, limit: usize, kind: &str) -> Result<Ve
             // 用 schema::C2C_PEER_ID 作为 ID（真实 QQ）
             let id = peer_id.to_string();
 
-            // 跳过自己
-            if id == "1497479966" || peer_id == 0 {
+            // 跳过自己和无效联系人
+            if own_uin == Some(peer_id) || peer_id == 0 {
                 continue;
             }
 
@@ -758,8 +927,8 @@ pub fn get_unread_sessions(limit: usize) -> Result<Vec<Session>> {
     let rows = stmt.query_map([limit as i64], |row| {
         let peer_id: i64 = row.get(0).unwrap_or(0);
         let peer_id_str = peer_id.to_string();
-        let name = crate::uid_resolve::name_for_qq(peer_id)
-            .unwrap_or_else(|| format!("uid_{}", peer_id));
+        let name =
+            crate::uid_resolve::name_for_qq(peer_id).unwrap_or_else(|| format!("uid_{}", peer_id));
         Ok(Session {
             id: peer_id_str,
             name,
@@ -890,10 +1059,7 @@ pub fn get_stats(
     } else {
         let c2c_count: i64 = conn
             .query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM c2c_msg_table WHERE 1=1 {}",
-                    ts_where
-                ),
+                &format!("SELECT COUNT(*) FROM c2c_msg_table WHERE 1=1 {}", ts_where),
                 [],
                 |r| r.get(0),
             )
@@ -1223,7 +1389,7 @@ pub fn debug_tables() -> Result<()> {
             if has_non_ascii {
                 println!(
                     "  First 50 chars: {:?}",
-                    &f40800.chars().take(50).collect::<String>()
+                    f40800.chars().take(50).collect::<String>()
                 );
             }
             count += 1;

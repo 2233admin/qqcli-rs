@@ -6,7 +6,8 @@
 //!  3. 如果密钥已缓存，直接解密
 //!  4. 输出解密后的 DB 路径
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
+use serde::Serialize;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -23,6 +24,14 @@ pub enum DbStatus {
     },
     /// DB 文件不存在
     NotFound(PathBuf),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DecryptPrerequisites {
+    pub sqlcipher_path: PathBuf,
+    pub sqlcipher_ready: bool,
+    pub key_script_path: PathBuf,
+    pub key_script_ready: bool,
 }
 
 impl std::fmt::Display for DbStatus {
@@ -44,26 +53,41 @@ impl std::fmt::Display for DbStatus {
 
 /// 检测 DB 加密状态
 pub fn detect_db_status() -> DbStatus {
-    // 1. 检查解密后的 DB (优先)
-    if let Some(decrypted) = crate::db::default_decrypted_db_path() {
-        if decrypted.exists() {
-            // 快速验证是否真的能打开
-            if rusqlite::Connection::open(&decrypted).is_ok() {
-                return DbStatus::Plaintext(decrypted);
+    let raw_db = match crate::db::select_raw_db_path(None, None) {
+        Ok(path) => path,
+        Err(_) if crate::db::raw_db_candidates().is_empty() => {
+            if let Some(decrypted) = crate::db::legacy_decrypted_db_path() {
+                if can_open_plaintext(&decrypted) {
+                    return DbStatus::Plaintext(decrypted);
+                }
             }
+            return DbStatus::NotFound(crate::db::default_db_path());
         }
+        Err(_) => return DbStatus::NotFound(crate::db::default_db_path()),
+    };
+
+    let decrypted = crate::db::decrypted_db_path(&raw_db);
+    if can_open_plaintext(&decrypted) {
+        return DbStatus::Plaintext(decrypted);
     }
 
-    // 2. 检查原始加密 DB
-    let raw_db = crate::db::default_db_path();
-    if !raw_db.exists() {
-        return DbStatus::NotFound(raw_db);
+    // 原始文件也可能本身就是明文数据库。
+    if can_open_plaintext(&raw_db) {
+        return DbStatus::Plaintext(raw_db);
     }
 
-    // 3. 尝试用已知密钥解密检测 (如果已缓存)
-    let key = crate::config::get_config().ok().and_then(|c| c.db_key);
+    let key = crate::config::get_key().ok().flatten();
 
     DbStatus::Encrypted { raw_db, key }
+}
+
+fn can_open_plaintext(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    rusqlite::Connection::open(path)
+        .and_then(|conn| conn.query_row("PRAGMA schema_version", [], |_| Ok(())))
+        .is_ok()
 }
 
 /// 默认 sqlcipher.exe 路径
@@ -75,6 +99,11 @@ fn default_sqlcipher_path() -> PathBuf {
 
 /// 默认密钥提取 PS1 脚本路径
 fn default_ps1_path() -> PathBuf {
+    if let Ok(cfg) = crate::config::get_config() {
+        if let Some(script) = cfg.key_script {
+            return script;
+        }
+    }
     dirs::home_dir()
         .map(|h| {
             h.join("Downloads")
@@ -84,18 +113,34 @@ fn default_ps1_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("windows_ntqq_get_key.ps1"))
 }
 
+pub fn decrypt_prerequisites() -> DecryptPrerequisites {
+    let sqlcipher_path = crate::config::get_config()
+        .ok()
+        .and_then(|c| c.sqlcipher_bin)
+        .unwrap_or_else(default_sqlcipher_path);
+    let key_script_path = default_ps1_path();
+    DecryptPrerequisites {
+        sqlcipher_ready: sqlcipher_path.is_file(),
+        sqlcipher_path,
+        key_script_ready: key_script_path.is_file(),
+        key_script_path,
+    }
+}
+
 /// 尝试用 sqlcipher.exe 解密 DB
 pub fn decrypt_with_sqlcipher(raw_db: &Path, output: &Path, key: &str) -> Result<()> {
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("创建解密数据库目录失败: {}", parent.display()))?;
+    }
+
     // 先 strip 1024-byte header
     let clean_path = output.with_file_name("nt_msg_clean.db");
 
     strip_sqlcipher_header(raw_db, &clean_path)?;
 
     // SQLCipher 解密
-    let sqlcipher_bin = crate::config::get_config()
-        .ok()
-        .and_then(|c| c.sqlcipher_bin.clone())
-        .unwrap_or_else(default_sqlcipher_path);
+    let sqlcipher_bin = decrypt_prerequisites().sqlcipher_path;
 
     if !sqlcipher_bin.exists() {
         bail!(
@@ -151,7 +196,7 @@ DETACH DATABASE plaintext;"#,
         bail!("解密后的 DB 无法打开，可能密钥错误");
     }
 
-    println!("解密完成: {}", output.display());
+    eprintln!("解密完成: {}", output.display());
     Ok(())
 }
 
@@ -174,7 +219,7 @@ fn strip_sqlcipher_header(raw: &Path, clean: &Path) -> Result<()> {
         // 没有 header，直接复制
         std::fs::write(clean, &all_data)
             .with_context(|| format!("写入 clean DB 失败: {}", clean.display()))?;
-        println!("  [无 header] 直接复制");
+        eprintln!("  [无 header] 直接复制");
         return Ok(());
     }
 
@@ -184,12 +229,12 @@ fn strip_sqlcipher_header(raw: &Path, clean: &Path) -> Result<()> {
         if clean_data.starts_with(b"SQLite format 3") {
             std::fs::write(clean, clean_data)
                 .with_context(|| format!("写入 clean DB 失败: {}", clean.display()))?;
-            println!("  [剥离 1024-byte header] OK");
+            eprintln!("  [剥离 1024-byte header] OK");
             return Ok(());
         }
     }
 
-    bail!("无法识别的 DB 格式，前 16 字节: {:02X?}", &header);
+    bail!("无法识别的 DB 格式，前 16 字节: {:02X?}", header);
 }
 
 /// 从 QQ 进程内存提取密钥 (调用 PowerShell 脚本)
@@ -207,8 +252,8 @@ pub fn extract_key_from_process(ps1_path: Option<&Path>) -> Result<String> {
         );
     }
 
-    println!("正在提取密钥，请确保 QQ NT 已登录...");
-    println!("(会启动新的 QQ 窗口，请在新窗口中登录目标账号)");
+    eprintln!("正在提取密钥，请确保 QQ NT 已登录...");
+    eprintln!("(会启动新的 QQ 窗口，请在新窗口中登录目标账号)");
 
     let output = Command::new("powershell")
         .args([
@@ -233,7 +278,7 @@ pub fn extract_key_from_process(ps1_path: Option<&Path>) -> Result<String> {
     let key = parse_key_from_output(&stdout);
     match key {
         Some(k) => {
-            println!("密钥提取成功: {}", k);
+            eprintln!("密钥提取成功，已准备解密。");
             Ok(k)
         }
         None => {
@@ -275,13 +320,13 @@ fn parse_key_from_output(output: &str) -> Option<String> {
 }
 
 /// 完整解密流程: 检测 -> 提取密钥(需要时) -> 解密 -> 保存密钥
-pub fn ensure_decrypted(force: bool) -> Result<PathBuf> {
+pub fn ensure_decrypted() -> Result<PathBuf> {
     let status = detect_db_status();
 
     match status {
         DbStatus::Plaintext(p) => {
-            println!("DB 状态: 明文 OK");
-            println!("DB 路径: {}", p.display());
+            eprintln!("DB 状态: 明文 OK");
+            eprintln!("DB 路径: {}", p.display());
             Ok(p)
         }
         DbStatus::NotFound(raw) => {
@@ -289,21 +334,17 @@ pub fn ensure_decrypted(force: bool) -> Result<PathBuf> {
         }
         DbStatus::Encrypted { raw_db, key } => {
             let key = if let Some(k) = key {
-                println!("DB 状态: 加密 (已缓存密钥)");
+                eprintln!("DB 状态: 加密（已找到受保护密钥）");
                 k
             } else {
-                if force {
-                    bail!("使用 --force 时必须有缓存密钥，请先运行 qq init 不带 --force");
-                }
-                println!("DB 状态: 加密，需要提取密钥");
+                eprintln!("DB 状态: 加密，需要提取密钥");
                 extract_key_from_process(None)?
             };
 
             // 解密
-            let out_path = crate::db::default_decrypted_db_path()
-                .unwrap_or_else(|| PathBuf::from("nt_msg_decrypted.db"));
+            let out_path = crate::db::decrypted_db_path(&raw_db);
 
-            println!("正在解密...");
+            eprintln!("正在解密...");
             decrypt_with_sqlcipher(&raw_db, &out_path, &key)?;
 
             // 保存密钥到配置

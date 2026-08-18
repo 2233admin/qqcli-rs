@@ -97,10 +97,7 @@ pub(crate) fn build_message(
 /// 2. Zlib-inflated body containing a URL.
 /// 3. Synthesise a URL from the fileid and the known NT CDN host,
 ///    since the protobuf field is reliably `multimedia.nt.qq.com.cn`.
-fn backfill_segment_urls(
-    mut segments: Vec<Segment>,
-    raw_content: &[u8],
-) -> Vec<Segment> {
+fn backfill_segment_urls(mut segments: Vec<Segment>, raw_content: &[u8]) -> Vec<Segment> {
     if let Some(candidate) = find_url_in_blob(raw_content) {
         patch_segments(&mut segments, &candidate);
         return segments;
@@ -112,7 +109,9 @@ fn backfill_segment_urls(
     // Last-ditch: synthesise NT CDN URL from fileid.
     for seg in segments.iter_mut() {
         let fileid: Option<String> = match seg {
-            Segment::Image { fileid, .. } | Segment::Record { fileid, .. } | Segment::File { fileid, .. } => fileid.clone(),
+            Segment::Image { fileid, .. }
+            | Segment::Record { fileid, .. }
+            | Segment::File { fileid, .. } => fileid.clone(),
             _ => None,
         };
         if let Some(fid) = fileid {
@@ -167,8 +166,15 @@ fn find_url_in_blob(raw: &[u8]) -> Option<String> {
             let mut j = host_start;
             while j < raw.len() {
                 let c = raw[j];
-                if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' || c == 0
-                    || c == b'"' || c == b'\'' || c == b'<' || c == b'>'
+                if c == b' '
+                    || c == b'\t'
+                    || c == b'\n'
+                    || c == b'\r'
+                    || c == 0
+                    || c == b'"'
+                    || c == b'\''
+                    || c == b'<'
+                    || c == b'>'
                 {
                     break;
                 }
@@ -222,7 +228,7 @@ mod backfill_tests {
 
     #[test]
     fn backfill_synthesises_nt_cdn_url() {
-        let raw = b"\xff\xff\xff";  // No URL, no zlib luck.
+        let raw = b"\xff\xff\xff"; // No URL, no zlib luck.
         let segs = vec![Segment::Image {
             url: None,
             fileid: Some("xyz789".into()),
@@ -232,7 +238,10 @@ mod backfill_tests {
         }];
         let out = backfill_segment_urls(segs, raw);
         if let Segment::Image { url, .. } = &out[0] {
-            assert_eq!(url.as_deref(), Some("https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=xyz789"));
+            assert_eq!(
+                url.as_deref(),
+                Some("https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=xyz789")
+            );
         } else {
             panic!("expected Image");
         }

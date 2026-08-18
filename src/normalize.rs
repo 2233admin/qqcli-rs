@@ -329,10 +329,7 @@ fn file_from_json(v: &Value) -> Option<Segment> {
                 .map(str::to_string)
         })
         .unwrap_or_else(|| "uploaded_file".to_string());
-    let url = f
-        .get("url")
-        .and_then(|x| x.as_str())
-        .map(str::to_string);
+    let url = f.get("url").and_then(|x| x.as_str()).map(str::to_string);
     let fileid = extract_id(f, &["fileUuid", "fileid"]);
     let size = f.get("fileSize").and_then(|x| x.as_u64());
     let local_path = f
@@ -350,10 +347,7 @@ fn file_from_json(v: &Value) -> Option<Segment> {
 
 fn record_from_json(v: &Value) -> Option<Segment> {
     let ptt = v.get("pttElement").unwrap_or(v);
-    let url = ptt
-        .get("url")
-        .and_then(|x| x.as_str())
-        .map(str::to_string);
+    let url = ptt.get("url").and_then(|x| x.as_str()).map(str::to_string);
     let fileid = extract_id(ptt, &["fileUuid", "fileid"]);
     let md5 = ptt
         .get("md5HexStr")
@@ -435,8 +429,8 @@ fn reply_from_json(v: &Value) -> Option<Segment> {
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
-    let original_msg_id = extract_id(r, &["replyMsgId", "replayMsgId", "sourceMsgId"])
-        .unwrap_or_default();
+    let original_msg_id =
+        extract_id(r, &["replyMsgId", "replayMsgId", "sourceMsgId"]).unwrap_or_default();
     // `sourceMsgContent` in NTQQ often exceeds 200 chars. Truncate to
     // 200 to keep `Reply.original_content_preview` bounded for
     // downstream rendering.
@@ -528,8 +522,7 @@ fn forward_from_json(v: &Value, depth: u8) -> Segment {
         for node in arr {
             if let Some(obj) = node.as_object() {
                 let obj_val = Value::Object(obj.clone());
-                let sender_id =
-                    extract_id(&obj_val, &["sender_id", "user_id"]).unwrap_or_default();
+                let sender_id = extract_id(&obj_val, &["sender_id", "user_id"]).unwrap_or_default();
                 let sender_name = obj
                     .get("sender_name")
                     .or_else(|| obj.get("nickname"))
@@ -578,10 +571,9 @@ fn forward_from_json(v: &Value, depth: u8) -> Segment {
                         };
                         let inner_segment = forward_from_json(&inner_obj, depth + 1);
                         match inner_segment {
-                            Segment::Forward { messages, .. } => messages
-                                .into_iter()
-                                .flat_map(|n| n.segments)
-                                .collect(),
+                            Segment::Forward { messages, .. } => {
+                                messages.into_iter().flat_map(|n| n.segments).collect()
+                            }
                             other => vec![other],
                         }
                     }
@@ -757,9 +749,7 @@ fn extract_media_segment(raw: &[u8]) -> Option<Segment> {
     let audio_ext_re = Regex::new(r"(?i)\.(amr|silk|mp3|wav|m4a|ogg)(\b|/)").ok()?;
     let fileid_re = Regex::new(r#"(?i)(file[_]?id|fileuuid)["'\s:=]+([A-Za-z0-9_\-]{8,})"#).ok()?;
 
-    let md5 = md5_re
-        .find(&text)
-        .map(|m| m.as_str().to_lowercase());
+    let md5 = md5_re.find(&text).map(|m| m.as_str().to_lowercase());
     let fileid = fileid_re
         .captures(&text)
         .and_then(|c| c.get(2))
@@ -800,19 +790,26 @@ fn find_first_url(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'h' && bytes.get(i + 1) == Some(&b't') && bytes.get(i + 2) == Some(&b't')
-        {
+        if bytes[i] == b'h' && bytes.get(i + 1) == Some(&b't') && bytes.get(i + 2) == Some(&b't') {
             // http or https
             if (bytes.get(i + 3) == Some(&b'p') || bytes.get(i + 3) == Some(&b's'))
-                && bytes.get(i + 4) == Some(&b':') && bytes.get(i + 5) == Some(&b'/')
+                && bytes.get(i + 4) == Some(&b':')
+                && bytes.get(i + 5) == Some(&b'/')
                 && bytes.get(i + 6) == Some(&b'/')
             {
                 let start = i;
                 let mut j = i + 7;
                 while j < bytes.len() {
                     let c = bytes[j];
-                    if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' || c == 0
-                        || c == b'"' || c == b'\'' || c == b'<' || c == b'>'
+                    if c == b' '
+                        || c == b'\t'
+                        || c == b'\n'
+                        || c == b'\r'
+                        || c == 0
+                        || c == b'"'
+                        || c == b'\''
+                        || c == b'<'
+                        || c == b'>'
                     {
                         break;
                     }
@@ -939,10 +936,7 @@ fn onebot_segment_to_segment(seg_type: &str, data: &Value) -> Option<Segment> {
         "file" | "onlinefile" => {
             let data = d();
             let name = file_name_from_data(&data).unwrap_or_else(|| "uploaded_file".to_string());
-            let url = data
-                .get("url")
-                .and_then(|x| x.as_str())
-                .map(str::to_string);
+            let url = data.get("url").and_then(|x| x.as_str()).map(str::to_string);
             let fileid = extract_id(&data, &["file_id"]);
             let size = data
                 .get("size")
@@ -971,7 +965,10 @@ fn onebot_segment_to_segment(seg_type: &str, data: &Value) -> Option<Segment> {
                         target_name: Some("全体成员".to_string()),
                     });
                 }
-                let name = data.get("name").and_then(|x| x.as_str()).map(str::to_string);
+                let name = data
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string);
                 return Some(Segment::At {
                     target_id: qq,
                     target_name: name,
@@ -1007,7 +1004,10 @@ fn onebot_segment_to_segment(seg_type: &str, data: &Value) -> Option<Segment> {
         "mface" => {
             let data = d();
             let id = extract_id(&data, &["emoji_id"]).unwrap_or_default();
-            let name = data.get("summary").and_then(|x| x.as_str()).map(str::to_string);
+            let name = data
+                .get("summary")
+                .and_then(|x| x.as_str())
+                .map(str::to_string);
             let url = data
                 .get("url")
                 .or_else(|| data.get("remote_url"))
@@ -1101,12 +1101,7 @@ fn forward_nodes_from_onebot(arr: &[Value]) -> Vec<ForwardNode> {
             let data = obj.get("data").cloned().unwrap_or(Value::Null);
             let data_obj = data.as_object();
             let sender_id = data_obj
-                .map(|d| {
-                    extract_id(
-                        &Value::Object(d.clone()),
-                        &["user_id", "sender_id", "uin"],
-                    )
-                })
+                .map(|d| extract_id(&Value::Object(d.clone()), &["user_id", "sender_id", "uin"]))
                 .unwrap_or_default()
                 .unwrap_or_default();
             let sender_name = data_obj
@@ -1230,8 +1225,15 @@ mod tests {
         // First pathway is the text extractor; if it picks up only the
         // URL tail that's still fine. We just need the image to be
         // recognised somewhere.
-        let has_image = mws.segments.iter().any(|s| matches!(s, Segment::Image { .. }));
-        assert!(has_image, "expected at least one Image segment, got {:?}", mws.segments);
+        let has_image = mws
+            .segments
+            .iter()
+            .any(|s| matches!(s, Segment::Image { .. }));
+        assert!(
+            has_image,
+            "expected at least one Image segment, got {:?}",
+            mws.segments
+        );
     }
 
     #[test]
@@ -1251,11 +1253,18 @@ mod tests {
         let mws = normalize_blob_to_segments(raw.as_bytes());
         assert_eq!(mws.segments.len(), 1);
         match &mws.segments[0] {
-            Segment::Forward { sender_name, messages, .. } => {
+            Segment::Forward {
+                sender_name,
+                messages,
+                ..
+            } => {
                 assert_eq!(sender_name.as_deref(), Some("Bob"));
                 assert_eq!(messages.len(), 2);
                 assert_eq!(messages[0].sender_name, "Alice");
-                assert_eq!(inline_token(&messages[0].segments[0]).as_deref(), Some("hi"));
+                assert_eq!(
+                    inline_token(&messages[0].segments[0]).as_deref(),
+                    Some("hi")
+                );
             }
             other => panic!("expected Forward, got {:?}", other),
         }
@@ -1303,18 +1312,26 @@ mod tests {
         let raw = serde_json::to_string(&outer).unwrap();
         let mws = normalize_blob_to_segments(raw.as_bytes());
         // Outer is one Forward segment.
-        assert_eq!(mws.segments.len(), 1, "expected 1 outer segment, got {}", mws.segments.len());
+        assert_eq!(
+            mws.segments.len(),
+            1,
+            "expected 1 outer segment, got {}",
+            mws.segments.len()
+        );
         // Walk: at some depth we must encounter an Unknown with the cap reason.
         fn find_cap(seg: &Segment) -> bool {
             match seg {
                 Segment::Unknown { reason, .. } if reason.starts_with("max forward depth") => true,
-                Segment::Forward { messages, .. } => messages
-                    .iter()
-                    .any(|n| n.segments.iter().any(find_cap)),
+                Segment::Forward { messages, .. } => {
+                    messages.iter().any(|n| n.segments.iter().any(find_cap))
+                }
                 _ => false,
             }
         }
-        assert!(find_cap(&mws.segments[0]), "expected a depth-cap Unknown segment in the tree");
+        assert!(
+            find_cap(&mws.segments[0]),
+            "expected a depth-cap Unknown segment in the tree"
+        );
     }
 
     #[test]
@@ -1352,10 +1369,18 @@ mod tests {
                 let inner_segs = &messages[0].segments;
                 // We expect the text "leaf" reachable through the
                 // inner segments, not stuck behind an Unknown.
-                let has_text = inner_segs.iter().any(|s| matches!(s, Segment::Text { text } if text == "leaf"));
-                let has_unknown = inner_segs.iter().any(|s| matches!(s, Segment::Unknown { .. }));
+                let has_text = inner_segs
+                    .iter()
+                    .any(|s| matches!(s, Segment::Text { text } if text == "leaf"));
+                let has_unknown = inner_segs
+                    .iter()
+                    .any(|s| matches!(s, Segment::Unknown { .. }));
                 assert!(has_text, "expected leaf text, got {:?}", inner_segs);
-                assert!(!has_unknown, "did not expect Unknown in 2-level forward, got {:?}", inner_segs);
+                assert!(
+                    !has_unknown,
+                    "did not expect Unknown in 2-level forward, got {:?}",
+                    inner_segs
+                );
             }
             other => panic!("expected Forward, got {:?}", other),
         }
@@ -1368,7 +1393,11 @@ mod tests {
         // and emit an Unknown segment.
         let raw = [0xFFu8, 0xFE, 0xFD, 0xFC];
         let mws = normalize_blob_to_segments(&raw);
-        assert!(matches!(&mws.segments[0], Segment::Unknown { .. }), "got {:?}", mws.segments);
+        assert!(
+            matches!(&mws.segments[0], Segment::Unknown { .. }),
+            "got {:?}",
+            mws.segments
+        );
         assert_eq!(mws.primary_type, "未知");
     }
 
@@ -1384,7 +1413,13 @@ mod tests {
         let raw = br#"{"elementType":2,"picElement":{"fileUuid":"u1","md5HexStr":"abc","originImageUrl":"https://x/y.jpg","sourcePath":"C:/Pic/y.jpg"}}"#;
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
-            Segment::Image { url, fileid, md5, local_path, .. } => {
+            Segment::Image {
+                url,
+                fileid,
+                md5,
+                local_path,
+                ..
+            } => {
                 assert_eq!(url.as_deref(), Some("https://x/y.jpg"));
                 assert_eq!(fileid.as_deref(), Some("u1"));
                 assert_eq!(md5.as_deref(), Some("abc"));
@@ -1413,7 +1448,13 @@ mod tests {
         }"#;
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
-            Segment::Image { url, fileid, md5, size, local_path } => {
+            Segment::Image {
+                url,
+                fileid,
+                md5,
+                size,
+                local_path,
+            } => {
                 assert_eq!(url.as_deref(), Some("https://gchat.qpic.cn/shot.jpg"));
                 assert_eq!(fileid.as_deref(), Some("file-uuid-123"));
                 assert_eq!(md5.as_deref(), Some("deadbeefdeadbeefdeadbeefdeadbeef"));
@@ -1438,7 +1479,12 @@ mod tests {
         }"#;
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
-            Segment::Record { fileid, md5, duration, .. } => {
+            Segment::Record {
+                fileid,
+                md5,
+                duration,
+                ..
+            } => {
                 assert_eq!(fileid.as_deref(), Some("ptt-uuid-1"));
                 assert_eq!(md5.as_deref(), Some("abcdabcdabcdabcdabcdabcdabcdabcd"));
                 assert_eq!(*duration, Some(12), "12s voice should stay 12s, not 12000");
@@ -1474,13 +1520,24 @@ mod tests {
         }"#;
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
-            Segment::Reply { sender_id, sender_name, original_msg_id, original_content_preview } => {
+            Segment::Reply {
+                sender_id,
+                sender_name,
+                original_msg_id,
+                original_content_preview,
+            } => {
                 assert_eq!(sender_id, "12345");
                 assert_eq!(sender_name, "Alice");
                 assert_eq!(original_msg_id, "msg-100");
-                assert!(original_content_preview.ends_with('…'), "should be truncated with ellipsis");
+                assert!(
+                    original_content_preview.ends_with('…'),
+                    "should be truncated with ellipsis"
+                );
                 let trimmed = original_content_preview.trim_end_matches('…');
-                assert!(trimmed.chars().count() <= 200, "preview must be <= 200 chars");
+                assert!(
+                    trimmed.chars().count() <= 200,
+                    "preview must be <= 200 chars"
+                );
             }
             other => panic!("expected Reply, got {:?}", other),
         }
@@ -1494,7 +1551,10 @@ mod tests {
         }"#;
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
-            Segment::At { target_id, target_name } => {
+            Segment::At {
+                target_id,
+                target_name,
+            } => {
                 assert_eq!(target_id, "0");
                 assert_eq!(target_name.as_deref(), Some("全体成员"));
             }
@@ -1510,7 +1570,10 @@ mod tests {
         }"#;
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
-            Segment::At { target_id, target_name } => {
+            Segment::At {
+                target_id,
+                target_name,
+            } => {
                 assert_eq!(target_id, "12345");
                 assert_eq!(target_name.as_deref(), Some("Bob"));
             }
@@ -1553,14 +1616,19 @@ mod tests {
         assert_eq!(mws.segments.len(), 3);
         assert!(matches!(&mws.segments[0], Segment::Text { text } if text == "look at this:"));
         match &mws.segments[1] {
-            Segment::Image { url, local_path, .. } => {
+            Segment::Image {
+                url, local_path, ..
+            } => {
                 assert_eq!(url.as_deref(), Some("https://x/y.jpg"));
                 assert_eq!(local_path.as_deref(), Some("shot.jpg"));
             }
             other => panic!("expected Image, got {:?}", other),
         }
         match &mws.segments[2] {
-            Segment::At { target_id, target_name } => {
+            Segment::At {
+                target_id,
+                target_name,
+            } => {
                 assert_eq!(target_id, "0");
                 assert_eq!(target_name.as_deref(), Some("全体成员"));
             }
@@ -1601,7 +1669,11 @@ mod tests {
         let mws = normalize_blob_to_segments(raw);
         match &mws.segments[0] {
             Segment::Unknown { reason, .. } => {
-                assert!(reason.contains("42"), "reason should mention the elementType: {}", reason);
+                assert!(
+                    reason.contains("42"),
+                    "reason should mention the elementType: {}",
+                    reason
+                );
             }
             other => panic!("expected Unknown, got {:?}", other),
         }

@@ -61,6 +61,8 @@ qq search "关键词"     # 0.3秒。不开QQ。不翻记录。
 | 命令 | 说明 |
 |------|------|
 | `qq sessions` | 列出最近会话 |
+| `qq init` | 选择账号、检查数据库状态并给出下一步 |
+| `qq doctor` | 检查解密所需工具和本机配置 |
 | `qq history <id>` | 查看聊天记录（带时间戳） |
 | `qq history <id> --since 2024-01-01` | 按日期过滤 |
 | `qq index` | 建立全文搜索索引 |
@@ -74,12 +76,34 @@ qq search "关键词"     # 0.3秒。不开QQ。不翻记录。
 
 ## 快速开始
 
-### 下载
+### Windows 安装
 
-| 平台 | 下载方式 |
-|------|----------|
-| Windows | 从 [Releases](https://github.com/2233admin/qqcli-rs/releases) 下载 `qq.exe` |
-| Linux/macOS | 下载 `qqcli` 二进制文件 |
+1. 从 [Releases](https://github.com/2233admin/qqcli-rs/releases) 下载 `qqcli-*-windows-x86_64.zip`。
+2. 解压后双击 `install.cmd`。
+3. 重新打开 PowerShell，运行：
+
+```powershell
+qq init
+```
+
+`qq init` 不会擅自启动 QQ 或解密数据库：
+
+- 只有一个账号时会自动绑定；
+- 多个账号时按提示执行 `qq init --account <QQ号>`；
+- QQ 使用自定义数据目录时执行 `qq init --db-path <nt_msg.db 路径>`；
+- 数据库加密时，先运行 `qq doctor` 检查依赖，准备好后再明确执行 `qq init --decrypt`。
+
+### Agent / 自动化
+
+所有初始化状态都能以 JSON 获取：
+
+```powershell
+qq --json init
+```
+
+- 退出码 `0`：数据库可用；
+- 退出码 `1`：需要选择账号、设置路径或显式解密；JSON 的 `next_command` 给出下一步；
+- Agent 可通过 `QQCLI_DB_PATH` 传入数据库路径，通过 `QQCLI_DB_KEY` 临时传入密钥；后者不会写入磁盘。
 
 ### 使用
 
@@ -117,7 +141,15 @@ qq export 123456789 -o chat.md
 > 确保 QQ NT 至少运行过一次。
 
 **Q: 数据库加密了？**
-> 使用 [qq-nt-decrypt](https://github.com/MrXiaoM/qq-nt-decrypt) 解密。
+> 先运行 `qq doctor`。如未配置工具，请从 [qq-nt-decrypt](https://github.com/MrXiaoM/qq-nt-decrypt) 获取密钥提取脚本，并准备 SQLCipher：
+>
+> ```powershell
+> qq config set-key-script <windows_ntqq_get_key.ps1 路径>
+> qq config set-sqlcipher <sqlcipher.exe 路径>
+> qq init --decrypt
+> ```
+>
+> 解密密钥会使用 Windows DPAPI 保护；不会打印到终端，也不会以明文写入配置文件。
 
 **Q: 搜索很慢？**
 > 先运行 `qq index` 建立搜索索引。
@@ -125,7 +157,12 @@ qq export 123456789 -o chat.md
 **Q: 数据库在哪？**
 > 默认位置：`文档\Tencent Files\{QQ号}\nt_qq\nt_db\nt_msg.db`
 >
-> 自定义路径：`export QQCLI_DB_PATH=/path/to/nt_msg.db`
+> 自定义路径：
+> - 推荐一次性保存：`qq config set-db-path "D:\QQ\nt_msg.db"`
+> - 单次 PowerShell：`$env:QQCLI_DB_PATH = "D:\QQ\nt_msg.db"`
+
+**Q: Linux/macOS 能直接使用吗？**
+> 当前发布包和 QQ NT 解密流程仅支持 Windows。Linux/macOS 需要自行提供兼容的本地数据库与解密工具，暂不作为受支持的安装目标。
 
 ---
 
