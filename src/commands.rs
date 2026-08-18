@@ -9,7 +9,10 @@ use crate::output::YamlWriter;
 use anyhow::{anyhow, Context, Result};
 use rusqlite::params;
 use serde::Serialize;
-use std::path::Path;
+use std::{
+    io::{self, IsTerminal, Write},
+    path::Path,
+};
 
 use crate::schema::{
     C2C_PEER_ID, C2C_SENDER_ID, C2C_SENDER_NAME, CONTENT, IS_SENDER_ME, MSG_ID, TIMESTAMP,
@@ -22,6 +25,14 @@ struct InitCandidate {
 }
 
 #[derive(Debug, Serialize)]
+struct DecryptionConsent {
+    required: bool,
+    action: &'static str,
+    scope: Vec<&'static str>,
+    command_after_user_agrees: String,
+}
+
+#[derive(Debug, Serialize)]
 struct InitReport {
     status: &'static str,
     message: String,
@@ -29,6 +40,8 @@ struct InitReport {
     account: Option<String>,
     summary: Option<db::DbSummary>,
     candidates: Vec<InitCandidate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consent: Option<DecryptionConsent>,
     next_command: String,
 }
 
@@ -57,15 +70,73 @@ fn print_init_report(report: &InitReport, json: bool) -> Result<()> {
             }
         }
     }
+    if let Some(consent) = &report.consent {
+        println!("需要授权: {}", consent.action);
+        for scope in &consent.scope {
+            println!("  - {scope}");
+        }
+    }
     println!("下一步: {}", report.next_command);
     Ok(())
 }
 
-/// 初始化数据库。默认只检测；只有显式传 --decrypt 才会提取密钥或启动解密。
+fn decrypt_consent() -> DecryptionConsent {
+    DecryptionConsent {
+        required: true,
+        action: "读取本机 QQ 解密密钥并生成可读取的本地数据库副本",
+        scope: vec![
+            "可能读取当前登录 QQ 进程的本机内存，用于取得数据库密钥",
+            "运行已配置的本机密钥提取脚本和 SQLCipher",
+            "将解密后的副本保存到本机 AppData\\Local\\qqcli；密钥使用 Windows DPAPI 保护",
+            "不会上传消息、密钥或数据库，也不会永久保存本次授权",
+        ],
+        command_after_user_agrees: "qq init --consent-decrypt".to_string(),
+    }
+}
+
+fn request_decrypt_consent() -> Result<bool> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Ok(false);
+    }
+
+    let consent = decrypt_consent();
+    println!("检测到 QQ 数据库已加密。要继续读取消息，需要你的授权：");
+    for scope in &consent.scope {
+        println!("  - {scope}");
+    }
+    print!("确认同意以上操作并立即解密吗？输入“同意”继续： ");
+    io::stdout().flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    Ok(matches!(answer.trim(), "同意" | "yes" | "YES" | "y" | "Y"))
+}
+
+#[cfg(test)]
+mod consent_tests {
+    use super::decrypt_consent;
+
+    #[test]
+    fn consent_is_one_time_and_names_the_agent_command() {
+        let consent = decrypt_consent();
+        assert!(consent.required);
+        assert_eq!(
+            consent.command_after_user_agrees,
+            "qq init --consent-decrypt"
+        );
+        assert!(consent.scope.iter().any(|scope| scope.contains("不会上传")));
+        assert!(consent
+            .scope
+            .iter()
+            .any(|scope| scope.contains("不会永久保存")));
+    }
+}
+
+/// 初始化数据库。交互终端会在用户授权后解密；Agent 必须显式传入授权标志。
 pub fn init(
     account: Option<&str>,
     db_path: Option<&Path>,
-    decrypt_requested: bool,
+    consent_decrypt: bool,
     json: bool,
 ) -> Result<()> {
     let selected = match db::select_raw_db_path(account, db_path) {
@@ -91,6 +162,7 @@ pub fn init(
                         account: None,
                         summary: Some(summary),
                         candidates: vec![],
+                        consent: None,
                         next_command: "qq sessions --limit 20".to_string(),
                     };
                     return print_init_report(&report, json);
@@ -107,6 +179,7 @@ pub fn init(
                 account: None,
                 summary: None,
                 candidates,
+                consent: None,
                 next_command: "qq init --account <QQ号>  或  qq init --db-path <nt_msg.db 路径>"
                     .to_string(),
             };
@@ -128,35 +201,50 @@ pub fn init(
                 account,
                 summary: Some(summary),
                 candidates: vec![],
+                consent: None,
                 next_command: "qq sessions --limit 20".to_string(),
             };
             print_init_report(&report, json)
         }
-        decrypt::DbStatus::Encrypted { raw_db, key } if !decrypt_requested => {
+        decrypt::DbStatus::Encrypted { raw_db, key } => {
             let prerequisites = decrypt::decrypt_prerequisites();
             let dependencies_ready =
                 prerequisites.sqlcipher_ready && (key.is_some() || prerequisites.key_script_ready);
-            let report = InitReport {
-                status: "decrypt_required",
-                message: if key.is_some() {
-                    "数据库已加密，已找到受保护密钥。不会自动解密。".to_string()
-                } else {
-                    "数据库已加密，需要提取密钥。不会自动启动 QQ 或解密。".to_string()
-                },
-                db_path: Some(raw_db.display().to_string()),
-                account,
-                summary: None,
-                candidates: vec![],
-                next_command: if dependencies_ready {
-                    "qq init --decrypt".to_string()
-                } else {
-                    "qq doctor".to_string()
-                },
-            };
-            print_init_report(&report, json)?;
-            anyhow::bail!("初始化需要显式解密")
-        }
-        decrypt::DbStatus::Encrypted { .. } => {
+            if !dependencies_ready {
+                let report = InitReport {
+                    status: "decrypt_setup_required",
+                    message: "数据库已加密；解密工具尚未就绪。".to_string(),
+                    db_path: Some(raw_db.display().to_string()),
+                    account,
+                    summary: None,
+                    candidates: vec![],
+                    consent: None,
+                    next_command: "qq doctor".to_string(),
+                };
+                print_init_report(&report, json)?;
+                anyhow::bail!("初始化需要配置解密工具")
+            }
+
+            let authorized = consent_decrypt || (!json && request_decrypt_consent()?);
+            if !authorized {
+                let report = InitReport {
+                    status: "consent_required",
+                    message: if key.is_some() {
+                        "数据库已加密，已找到受保护密钥；等待用户授权后解密。".to_string()
+                    } else {
+                        "数据库已加密；等待用户授权后提取密钥并解密。".to_string()
+                    },
+                    db_path: Some(raw_db.display().to_string()),
+                    account,
+                    summary: None,
+                    candidates: vec![],
+                    consent: Some(decrypt_consent()),
+                    next_command: "qq init --consent-decrypt".to_string(),
+                };
+                print_init_report(&report, json)?;
+                anyhow::bail!("需要用户授权才能解密")
+            }
+
             let decrypted = decrypt::ensure_decrypted()
                 .context("解密失败。请确认 QQ NT 已登录，并检查 sqlcipher 与密钥提取工具配置。")?;
             let summary = db::validate_db(&decrypted)?;
@@ -167,6 +255,7 @@ pub fn init(
                 account,
                 summary: Some(summary),
                 candidates: vec![],
+                consent: None,
                 next_command: "qq sessions --limit 20".to_string(),
             };
             print_init_report(&report, json)
@@ -179,6 +268,7 @@ pub fn init(
                 account,
                 summary: None,
                 candidates: vec![],
+                consent: None,
                 next_command:
                     "运行并登录 QQ NT 后重试；自定义目录请使用 qq init --db-path <nt_msg.db 路径>"
                         .to_string(),
@@ -287,12 +377,12 @@ fn print_config_saved(setting: &str, path: &Path, json: bool) -> Result<()> {
                 "status": "saved",
                 "setting": setting,
                 "path": path.display().to_string(),
-                "next_command": "qq init --decrypt"
+                "next_command": "qq init --consent-decrypt"
             })
         );
     } else {
         println!("已保存 {}: {}", setting, path.display());
-        println!("下一步: qq init --decrypt");
+        println!("下一步: qq init --consent-decrypt");
     }
     Ok(())
 }
@@ -338,7 +428,7 @@ pub fn doctor(json: bool) -> Result<()> {
             } else if key.is_none() && !prerequisites.key_script_ready {
                 "qq config set-key-script <windows_ntqq_get_key.ps1 路径>".to_string()
             } else {
-                "qq init --decrypt".to_string()
+                "qq init --consent-decrypt".to_string()
             };
             (
                 "decrypt_required".to_string(),

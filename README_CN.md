@@ -86,12 +86,14 @@ qq search "关键词"     # 0.3秒。不开QQ。不翻记录。
 qq init
 ```
 
-`qq init` 不会擅自启动 QQ 或解密数据库：
+`qq init` 会先确认是否真的需要解密，再展示一次性授权说明：
 
 - 只有一个账号时会自动绑定；
 - 多个账号时按提示执行 `qq init --account <QQ号>`；
 - QQ 使用自定义数据目录时执行 `qq init --db-path <nt_msg.db 路径>`；
-- 数据库加密时，先运行 `qq doctor` 检查依赖，准备好后再明确执行 `qq init --decrypt`。
+- 数据库加密且依赖已就绪时，交互终端输入“同意”即可继续；工具会说明它将读取的本机资源、保存位置和不会做的事；
+- Agent 必须先向用户展示 JSON 中的 `consent` 内容，得到同意后才执行 `qq init --consent-decrypt`；授权只用于这一次操作，不会被永久保存；
+- 解密工具未就绪时，先运行 `qq doctor`，按下一步提示配置。
 
 ### Agent / 自动化
 
@@ -102,7 +104,8 @@ qq --json init
 ```
 
 - 退出码 `0`：数据库可用；
-- 退出码 `1`：需要选择账号、设置路径或显式解密；JSON 的 `next_command` 给出下一步；
+- 退出码 `1`：需要选择账号、设置路径、配置依赖或获取用户解密授权；JSON 的 `next_command` 给出下一步；
+- `status: "consent_required"` 时，Agent 必须把 `consent.scope` 原样告知用户；只有用户同意后，才能执行 `consent.command_after_user_agrees`；
 - Agent 可通过 `QQCLI_DB_PATH` 传入数据库路径，通过 `QQCLI_DB_KEY` 临时传入密钥；后者不会写入磁盘。
 
 ### 使用
@@ -146,7 +149,7 @@ qq export 123456789 -o chat.md
 > ```powershell
 > qq config set-key-script <windows_ntqq_get_key.ps1 路径>
 > qq config set-sqlcipher <sqlcipher.exe 路径>
-> qq init --decrypt
+> qq init --consent-decrypt
 > ```
 >
 > 解密密钥会使用 Windows DPAPI 保护；不会打印到终端，也不会以明文写入配置文件。

@@ -41,7 +41,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// 初始化: 检测 DB 路径, 确认解密状态
+    /// 初始化: 选择账号、确认解密授权并准备数据库
     Init {
         /// 选择 QQ 账号（多账号时必填）
         #[arg(long, value_name = "QQ号", conflicts_with = "db_path")]
@@ -49,9 +49,9 @@ enum Commands {
         /// 直接指定 nt_msg.db 路径，并保存为当前默认数据库
         #[arg(long, value_name = "PATH", conflicts_with = "account")]
         db_path: Option<PathBuf>,
-        /// 明确同意提取密钥并解密；默认只检查状态
-        #[arg(long, visible_alias = "force")]
-        decrypt: bool,
+        /// 已取得用户授权：提取本机密钥并解密数据库（不会永久保存授权）
+        #[arg(long, visible_alias = "decrypt")]
+        consent_decrypt: bool,
     },
 
     /// 查看或修改本机 qqcli 配置（不会显示密钥）
@@ -284,8 +284,13 @@ fn main() -> Result<()> {
         Commands::Init {
             account,
             db_path,
-            decrypt,
-        } => commands::init(account.as_deref(), db_path.as_deref(), *decrypt, cli.json),
+            consent_decrypt,
+        } => commands::init(
+            account.as_deref(),
+            db_path.as_deref(),
+            *consent_decrypt,
+            cli.json,
+        ),
         Commands::Config { command } => match command {
             ConfigCommands::Show => commands::config_show(cli.json),
             ConfigCommands::SetDbPath { path } => commands::config_set_db_path(path, cli.json),

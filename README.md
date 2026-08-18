@@ -82,7 +82,7 @@ qq search "keyword"     # 0.3 seconds. No QQ. No scrolling.
 2. Extract it and run `install.cmd`.
 3. Open a new PowerShell window and run `qq init`.
 
-`qq init` only inspects by default. It will never start QQ or decrypt data unless you explicitly run `qq init --decrypt`.
+When an encrypted database is found, `qq init` first explains the one-time local data access needed for decryption and asks for consent. In JSON/Agent mode, it returns `status: "consent_required"`; the agent must show `consent.scope` to the user and may only run `qq init --consent-decrypt` after the user agrees. Consent is never saved as a permanent switch.
 
 For automation, use `qq --json init`. A non-zero exit code means that the JSON `next_command` must be handled. `QQCLI_DB_PATH` and `QQCLI_DB_KEY` can be supplied by the agent without persisting the key.
 
@@ -122,7 +122,7 @@ qq export 123456789 -o chat.md
 > Make sure QQ NT has been run at least once.
 
 **Q: Database encrypted?**
-> Run `qq doctor`, configure the key-extraction script and SQLCipher if needed, then run `qq init --decrypt`. Saved keys are protected with Windows DPAPI and are never printed.
+> Run `qq doctor`, configure the key-extraction script and SQLCipher if needed, obtain the user's consent, then run `qq init --consent-decrypt`. Saved keys are protected with Windows DPAPI and are never printed.
 
 **Q: Search is slow?**
 > Run `qq index` first to build the search index.
