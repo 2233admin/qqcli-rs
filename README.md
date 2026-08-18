@@ -173,6 +173,8 @@ Rust · rusqlite · DuckDB · tokio · clap · SQLCipher-compatible workflow
 
 Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions. If the tool cannot find your database, a redacted `qq doctor --json` report is the best starting point for an issue.
 
+Maintainer: [2233admin](https://github.com/2233admin)
+
 ## License
 
 MIT

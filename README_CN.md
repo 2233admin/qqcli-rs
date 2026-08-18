@@ -173,6 +173,8 @@ Rust · rusqlite · DuckDB · tokio · clap · SQLCipher 兼容解密流程
 
 欢迎提交 PR。开发说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。如果工具找不到数据库，提交脱敏后的 `qq doctor --json` 报告会更容易定位问题。
 
+维护者：[2233admin](https://github.com/2233admin)
+
 ## License
 
 MIT
